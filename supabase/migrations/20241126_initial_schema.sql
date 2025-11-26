@@ -14,6 +14,7 @@ CREATE TABLE public.device (
   serial text NULL,
   client_id bigint NULL,
   friendly_name text NULL,
+  device_model text NULL,
   status text NULL,
   group_id bigint NULL,
   CONSTRAINT device_pkey PRIMARY KEY (id),

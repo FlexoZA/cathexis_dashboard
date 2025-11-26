@@ -1,54 +1,17 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Eye, Play, Search, Plus } from "lucide-react"
+import { supabase } from "@/lib/supabase"
+import { Device as DBDevice } from "@/lib/types/database"
 
 interface Device {
-  id: string
+  id: number
   device_friendly_name: string
   device_serial: string
   status: 'online' | 'offline' | 'warning' | 'maintenance'
+  group_name: string | null
 }
-
-// Mock data for demonstration
-const mockDevices: Device[] = [
-  {
-    id: '1',
-    device_friendly_name: 'Main Entrance Camera',
-    device_serial: 'CAM-2024-001',
-    status: 'online',
-  },
-  {
-    id: '2',
-    device_friendly_name: 'Parking Lot Camera',
-    device_serial: 'CAM-2024-002',
-    status: 'online',
-  },
-  {
-    id: '3',
-    device_friendly_name: 'Warehouse Camera',
-    device_serial: 'CAM-2024-003',
-    status: 'offline',
-  },
-  {
-    id: '4',
-    device_friendly_name: 'Loading Bay Camera',
-    device_serial: 'CAM-2024-004',
-    status: 'warning',
-  },
-  {
-    id: '5',
-    device_friendly_name: 'Reception Camera',
-    device_serial: 'CAM-2024-005',
-    status: 'maintenance',
-  },
-  {
-    id: '6',
-    device_friendly_name: 'Back Office Camera',
-    device_serial: 'CAM-2024-006',
-    status: 'online',
-  },
-]
 
 const statusConfig = {
   online: { label: 'Online', color: 'bg-green-500/10 text-green-500 border-green-500/20' },
@@ -57,21 +20,111 @@ const statusConfig = {
   maintenance: { label: 'Maintenance', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
 }
 
+interface Group {
+  id: number
+  name: string
+}
+
 export function DeviceList() {
+  const [devices, setDevices] = useState<Device[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [groupFilter, setGroupFilter] = useState<string>("all")
+
+  useEffect(() => {
+    fetchDevices()
+    fetchGroups()
+  }, [])
+
+  async function fetchDevices() {
+    try {
+      setLoading(true)
+      console.log("DEBUG::DeviceList", "Starting to fetch devices...")
+      
+      const { data, error } = await supabase
+        .from('device')
+        .select(`
+          *,
+          groups (
+            name
+          )
+        `)
+        .order('created_at', { ascending: false })
+
+      console.log("DEBUG::DeviceList", "Supabase response:", { data, error })
+
+      if (error) {
+        console.log("DEBUG::DeviceList", "Error fetching devices:", error)
+        throw error
+      }
+
+      console.log("DEBUG::DeviceList", `Received ${data?.length || 0} devices from database`)
+
+      const mappedDevices: Device[] = (data || []).map((device: any) => ({
+        id: device.id,
+        device_friendly_name: device.friendly_name || 'Unknown Device',
+        device_serial: device.serial || 'N/A',
+        status: (device.status as Device['status']) || 'offline',
+        group_name: device.groups?.name || null,
+      }))
+
+      console.log("DEBUG::DeviceList", "Mapped devices:", mappedDevices)
+      setDevices(mappedDevices)
+    } catch (err: any) {
+      console.log("DEBUG::DeviceList", "Catch block error:", err)
+      setError(err.message || 'Failed to fetch devices')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function fetchGroups() {
+    try {
+      console.log("DEBUG::DeviceList", "Starting to fetch groups...")
+      
+      const { data, error } = await supabase
+        .from('groups')
+        .select('id, name')
+        .order('name', { ascending: true })
+
+      if (error) {
+        console.log("DEBUG::DeviceList", "Error fetching groups:", error)
+        throw error
+      }
+
+      console.log("DEBUG::DeviceList", `Received ${data?.length || 0} groups from database`)
+      setGroups(data || [])
+    } catch (err: any) {
+      console.log("DEBUG::DeviceList", "Error fetching groups:", err)
+    }
+  }
 
   const filteredDevices = useMemo(() => {
-    return mockDevices.filter((device) => {
+    console.log("DEBUG::DeviceList", "Filtering devices:", {
+      totalDevices: devices.length,
+      searchTerm,
+      statusFilter,
+      groupFilter
+    })
+    
+    const filtered = devices.filter((device) => {
       const matchesSearch = 
         device.device_friendly_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         device.device_serial.toLowerCase().includes(searchTerm.toLowerCase())
       
       const matchesStatus = statusFilter === "all" || device.status === statusFilter
+      
+      const matchesGroup = groupFilter === "all" || device.group_name === groupFilter
 
-      return matchesSearch && matchesStatus
+      return matchesSearch && matchesStatus && matchesGroup
     })
-  }, [searchTerm, statusFilter])
+
+    console.log("DEBUG::DeviceList", `Filtered to ${filtered.length} devices`)
+    return filtered
+  }, [devices, searchTerm, statusFilter, groupFilter])
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-8">
@@ -99,6 +152,20 @@ export function DeviceList() {
             <option value="maintenance">Maintenance</option>
           </select>
         </div>
+        <div className="sm:w-48">
+          <select
+            value={groupFilter}
+            onChange={(e) => setGroupFilter(e.target.value)}
+            className="w-full px-4 py-2.5 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400 focus:border-gray-400 text-sm bg-white"
+          >
+            <option value="all">All Groups</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.name}>
+                {group.name}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
       
       <hr className="border-gray-300 mb-6" />
@@ -109,8 +176,33 @@ export function DeviceList() {
           Add new device
         </button>
       </div>
+
+      {loading && (
+        <div className="text-center py-12">
+          <p className="text-gray-600">Loading devices...</p>
+        </div>
+      )}
+
+      {error && (
+        <div className="text-center py-12">
+          <p className="text-red-600">{error}</p>
+          <button 
+            onClick={fetchDevices}
+            className="mt-4 px-4 py-2 text-sm text-white bg-gray-800 hover:bg-gray-700 rounded-md"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && filteredDevices.length === 0 && (
+        <div className="text-center py-12">
+          <p className="text-gray-600">No devices found</p>
+        </div>
+      )}
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {!loading && !error && filteredDevices.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredDevices.map((device) => (
           <div
             key={device.id}
@@ -131,9 +223,14 @@ export function DeviceList() {
                       {statusConfig[device.status].label}
                     </span>
                   </div>
-                  <p className="text-sm text-gray-600">
+                  <p className="text-sm text-gray-600 mb-2">
                     {device.device_serial}
                   </p>
+                  {device.group_name && (
+                    <span className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full border bg-gray-500/10 text-gray-700 border-gray-500/20">
+                      {device.group_name}
+                    </span>
+                  )}
                 </div>
                 <div className="w-10 h-10 rounded-full bg-gray-800 flex items-center justify-center text-white font-bold flex-shrink-0 ml-3">
                   {device.device_friendly_name.charAt(0)}
@@ -154,7 +251,8 @@ export function DeviceList() {
             </div>
           </div>
         ))}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
