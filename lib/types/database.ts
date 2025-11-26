@@ -10,6 +10,7 @@ export interface Database {
           serial: string | null
           client_id: number | null
           friendly_name: string | null
+          device_model: string | null
           status: DeviceStatus | null
           group_id: number | null
         }
@@ -19,6 +20,7 @@ export interface Database {
           serial?: string | null
           client_id?: number | null
           friendly_name?: string | null
+          device_model?: string | null
           status?: DeviceStatus | null
           group_id?: number | null
         }
@@ -28,6 +30,7 @@ export interface Database {
           serial?: string | null
           client_id?: number | null
           friendly_name?: string | null
+          device_model?: string | null
           status?: DeviceStatus | null
           group_id?: number | null
         }

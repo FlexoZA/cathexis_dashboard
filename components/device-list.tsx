@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useMemo, useEffect } from "react"
-import { Eye, Play, Search, Plus } from "lucide-react"
+import { Eye, Play, Search } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { Device as DBDevice } from "@/lib/types/database"
+import { AddDeviceDialog } from "./add-device-dialog"
 
 interface Device {
   id: number
@@ -171,10 +172,7 @@ export function DeviceList() {
       <hr className="border-gray-300 mb-6" />
       
       <div className="mb-6 flex justify-end">
-        <button className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-gray-800 hover:bg-gray-700 rounded-md transition-colors focus:outline-none focus:ring-1 focus:ring-gray-400">
-          <Plus className="w-4 h-4" />
-          Add new device
-        </button>
+        <AddDeviceDialog groups={groups} onDeviceAdded={fetchDevices} />
       </div>
 
       {loading && (
