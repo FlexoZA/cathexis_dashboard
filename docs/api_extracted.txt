@@ -1,0 +1,2579 @@
+                MVR5 Third-party API
+
+
+
+
+005-20210707-324 Rev 16   29 April 2025
+                         Confidential. Only to be released under NDA
+
+
+Revision History
+
+ Document Amendment Record
+
+ Rev.   Date                   Section      Summary of Changes
+
+  00    7 July 2021            All         Document created.
+
+                               2.3,2.4,2.5 • Updated the video streaming to include the target IP and port.
+  01    19 July 2021                       • Updated GPS fields to indicate the newly supported fields.
+                                           • Included a description on how to stream audio.
+
+  02    20 July 2021           2.4         Exposed interface to enable audio on same video connection
+
+  03    27 July 2021           3           Add section to describe fetching of recorded data
+
+  04    2 August 2021          3           Add section to describe fetching continuous summary
+
+  05    31 August 2021         4           Added a section describing the events that are sent
+
+  06    8 September 2021       4           Added extra gps fields to events
+                                           Add config dump
+  07    17 November 2021       4,5          Added harsh events
+                                            Fixed inconsistent camera number
+                                           Add followingdistance
+  08    24 November            5           Added odometer description
+                                           Added some config descriptions.
+  09    24 Jan. 22             5           Change edit_config to update_config
+
+  10    27 April 2022          6           Added driver identity packet
+
+  11    22 August 2022         5           Added ‘account’ field
+
+  12    5 November 2022        7           Added IMU event packet
+                                           Add ignition details to the gps message
+                                           Add event preview details
+  13    7 September 2023
+                                           Add sdhealth details
+                                           Add config options
+                                           Add acknowledge API description (2.2.1)
+  14    25 March 2024          2.2, 4.1
+                                           Add call_started, call_ended, deep_sleep and power_loss events
+                                           Add environment stats
+  15    27 November 2024       9,10,11
+                                           Add reboot command
+  16    24 January 2025        2,3         Added optional client id for video/audio
+                                           Added reworked stream review mechanism, described V2
+                                           streaming headers, added timezone detail in Welcome, explained
+  17    13 February 2025       2, 12
+                                           expanded Welcome options, added client_id and id fields to help
+                                           uniquely identify stream/review sessions
+
+
+
+
+005-20210707-324 Rev 17                      29 April 2025                                              2
+                      Confidential. Only to be released under NDA
+
+
+
+
+005-20210707-324 Rev 17                   29 April 2025             3
+                                     Confidential. Only to be released under NDA
+
+
+Contents
+  Revision History ............................................................................................................................................. 2
+  1. Introduction ............................................................................................................................................... 5
+     1.2 Summary of API operation .................................................................................................................. 5
+  2. Connection................................................................................................................................................. 6
+     2.1 Data Transport Format ........................................................................................................................ 6
+     2.2 Initialisation ......................................................................................................................................... 7
+     2.3 Control Channel Options ..................................................................................................................... 8
+     2.4 Video Streaming ................................................................................................................................ 11
+     2.5 Audio Streaming ................................................................................................................................ 12
+  3. Fetching Recorded Video......................................................................................................................... 15
+     3.1 Request Continuous Recording Summary ......................................................................................... 15
+     3.2 Fetching Continuously Recorded Footage ......................................................................................... 16
+     3.3 Request Event Summary.................................................................................................................... 17
+     3.4 Request Video for Event .................................................................................................................... 18
+  4. Event Messages ....................................................................................................................................... 19
+     4.1 Supported Events .............................................................................................................................. 20
+  5. Config ....................................................................................................................................................... 21
+     5.1 Request Unit Config ........................................................................................................................... 21
+     5.2 Request Unit Config Response .......................................................................................................... 21
+     5.2 Edit/Set Unit Config ........................................................................................................................... 34
+  6. Driver Identification................................................................................................................................. 39
+  7. IMU Event ................................................................................................................................................ 40
+  8. SD Card Health ......................................................................................................................................... 42
+     8.1 Making the Request ........................................................................................................................... 42
+     8.2 Request SD Health Response ............................................................................................................. 42
+  9. Event Preview Snapshots......................................................................................................................... 43
+  10. Environment Stats ................................................................................................................................. 44
+     10.1 Making the request ......................................................................................................................... 44
+     10.2 Request Environment Response...................................................................................................... 44
+  11. Reboot Unit ........................................................................................................................................... 46
+     11.1 Making the Request ......................................................................................................................... 46
+  13. Conclusion ............................................................................................................................................. 48
+
+
+
+
+005-20210707-324 Rev 17                                                29 April 2025                                                                                4
+                          Confidential. Only to be released under NDA
+
+
+1. Introduction
+
+This document describes a subset of the MVR5 API. The initial scope of this document is to provide enough
+information for a 3rd party integrator to receive GPS data and start and stop video streaming.
+Note: This document is subject to change.
+
+
+1.2 Summary of API Operation
+
+The MVR device makes a TCP connection to an IP4 address, port pair.
+The address may be a DNS name or an IP4 address and is configured via the MVR5 commissioning tool. The
+configured target port MUST be even.
+Note carefully: This API is designed for little-endian architectures (Uint32_t is little endian). It does not
+support big-endian architecture.
+Note carefully: Unless specifically indicated all string values are assumed to be ASCII.
+
+
+
+
+ While Cathexis has made every effort to ensure the accuracy of this document, there is no guarantee of
+ accuracy, neither explicit nor implied. Specifications are subject to change without notice.
+
+
+
+005-20210707-324 Rev 17                          29 April 2025                                             5
+                         Confidential. Only to be released under NDA
+
+
+2. Connection
+
+2.1 Data Transport Format
+
+All data is structured with a 12-byte header and an (optional) N-byte payload.
+
+| Header (12 bytes) | Payload |
+
+
+   2.1.1 Header
+
+   The header contains the following:
+
+    Uint32_t magic     This is always 0x12AB34CD
+    Uint32_t type      See Types sub-heading, below.
+    Uint32_t size      Size of the following payload in bytes (can be 0).
+
+
+   2.1.2 Types
+
+   The Types field specifies what the payload is. Supported types are:
+
+    0     Heartbeat packet
+    1     JSON Payload
+    2     Video Payload
+    3     Audio Payload
+    4     Event Summary
+    5     Video Clip
+    6     Logs Payload
+    7     Firmware Payload
+    13    Driver identity payload
+    14    IMU event payload
+    15    Event Preview
+    16    Acknowledge
+    17    Review
+
+   For the purpose of this document, ONLY payloads 1, 2 and 3 are active.
+
+   Types 2 and 3 SHOULD only appear on the video/audio channel. Type 1 MAY appear on the video/audio
+   channel but is predominantly on the control channel.
+
+
+
+
+005-20210707-324 Rev 17                        29 April 2025                                      6
+                        Confidential. Only to be released under NDA
+
+
+2.2 Initialisation
+
+When a connection is successful, the MVR sends a ‘welcome’ JSON message. This message is sent on both
+the control and video/audio channels. The payload of this message is Type 1 (JSON) and looks as follows:
+
+ Welcome message
+
+ {
+     "message": {
+       "type": "welcome",
+       "payload": {
+         "serial": "MVR5452 4064668"
+         "firmware": "mdvr_5_1_RC31",
+         "api": "1.4.2",
+         "requires_ack": true,
+         "client_id": "my_client_id",
+         "stream_version": "1",
+         "connection_type": "review",
+         "timezone": "Africa/Johannesburg",
+         “oem”: {
+           “serial”: “OEM_SERIAL”,
+            "gpsfreq": 5,
+            "geo_comms_zone": {
+              "longitude": "0.000000",
+              "video": 3,
+              "radius": 20,
+              "override": 345600,
+              "enable": false,
+              "comms": 1,
+              "latitude": "0.000000"
+            },
+            "odometer": 0,
+            "odometer_factor": 1000,
+            "account": "unassigned",
+            "standbygpsfreq": 60
+          },
+       }
+     }
+ }
+
+
+ serial             The serial number of the device.
+ api                The version of the API. This will change as features are added.
+ firmware           The firmware version on the device.
+ requires_ack       This API connection requires packets to be acknowledged, See 2.2.1
+ timezone           IANA timezone that unit is in
+ stream_version     (optional) Specifies the Video/Audio streaming header version to expect. If not
+                    present, version is 1. Version 2 streaming described in 2.6 and 2.7
+ connection_type Description of connection type. Options are “control”, “video”, “event”, “audio”,
+                    “clipupload”, “review”. This is convenient for end point to know what connection
+                    type the MVR is making
+
+
+005-20210707-324 Rev 17                        29 April 2025                                           7
+                            Confidential. Only to be released under NDA
+
+
+ client_id           Optional client_id field. This field is present if a request for Live Video/Audio and
+                     Review contains a client unique id. This is a string value with a maximum supported
+                     length of 64 ASCII characters. The space character is not allowed
+ oem                 This represents the existing OEM setup for the device and contains the OEM serial
+                     number, geozone settings, odometer settings and gps frequency settings
+
+
+   2.2.1 Acknowledgements
+
+   If the ‘requires_ack’ Boolean is set to true, then this API connection requires all packets sent to be
+   acknowledged with the acknowledgment packet, which is a Header packet (as per 2.1.1) with the
+   Acknowledge type (see 2.1.2). e.g.
+
+    Uint32_t magic      0x12AB34CD (hex)
+    Uint32_t type       16 (decimal)
+    Uint32_t size       0
+   The MVR5 will only send subsequent packets once it receives acknowledgment of a previous packet.
+
+   If the ‘requires_ack’ is missing or set to ‘false’ the API does not require acknowledgment for packets. It is
+   RECOMMENDED that the user does NOT acknowledge packets in this state as with older firmware
+   versions, this will result in an error log for each acknowledge. However, if the user does acknowledge, it
+   will be ignored.
+
+   Acknowledge applies to the Control channel only. Connections initiated to upload video recordings and
+   stream live video do not support Acknowledgment and the ‘requires_ack’ should be ignored.
+
+2.3 Control Channel Options
+
+The control channel is used for most of the interactions with the device. The following are the supported
+interactions.
+
+
+   2.3.1 GPS
+
+   Upon successful connection, the MVR will send GPS data, unsolicited, at a rate of 1HZ.
+
+    {
+        "message": {
+          "payload": {
+            "longitude": 30.9129,
+            "utc": 1625495351,
+            "bearing": 0,
+            "speed": 0,
+            "dist": 0.0033255,
+            "latitude": -29.8441,
+            "bearing_acc": 0,
+            "age": 0
+            "accuracy": 9.65
+            "altitude": 296
+            "altitude_acc": 0
+            "satellites": 13
+            "meancn0": 21
+            "maxcn0": 29
+005-20210707-324 Rev 17                         29 April 2025                                                 8
+                        Confidential. Only to be released under NDA
+
+
+              "ignition":
+            },
+            "type": "gps"
+        }
+   }
+
+
+
+  2.3.2 Start Streaming Video
+
+  To start a video stream the following JSON payload is required. Remember, when sending this to the MVR,
+  the |Header|Payload| protocol must be adhered to.
+
+   {
+        "message": {
+          "type": "stream",
+          "payload": {
+            "camera": 0,
+            "command": 1,
+            "period": 30,
+            "profile": 1
+            "ip": 192.168.0.1
+            "port": 8001
+            "audio": 1
+            "client_id": "my_client_id"
+            "stream_version": 1
+            "id": 23
+          }
+        }
+   }
+
+
+
+   Camera            Camera number to stream (0=Road, 1=Cab)
+   Command           Start or Stop (1=Start, 2=Stop). Alternatively close the TCP connection to stop
+                     streaming
+   Period            Time period in seconds which this stream remains active. MVR will stop stream after
+                     this period elapses. A period of 0 implies stream indefinitely.
+   Audio             1=Include audio in stream, 0=Don’t include audio
+   Profile           Video profile to stream (0=High res(1080P or 720P), 1=low res (360P))
+   Ip                IPV4 target ip to target. If not specified, system will use the configured dAPI address.
+                     DNS is supported
+   Port              Target port. If not specified, system will use the configured dAPI port.
+   client_id         Optional field where client can specify their own string id. If present the Welcome
+                     message will contain the same client_id (see section 2.2 for details)
+   stream_version (optional) field specified the video/audio stream version to use. If absent, stream
+                     version defaults to 1. Supported options are 1 (see 2.4) or 2 (see 2.6). If another value
+                     is used, system defaults to 1. The Welcome packet on the connection will specify the
+                     stream version
+
+
+005-20210707-324 Rev 17                        29 April 2025                                                 9
+                        Confidential. Only to be released under NDA
+
+
+   id                (optional) This field allows end-point to specify an id that is included on every
+                     video/audio frame. This can be used to identify frames belong to requests. Only valid
+                     if stream_version==2, otherwise it is ignored. Supported values are 0-254.
+
+  Once started, the MVR will stream video down the video/audio port (see Video streaming header). Any
+  errors are reporting via the JSON error payload. (See Error Message, below.)
+
+
+  2.3.3 Start Streaming Audio
+
+  To start a video stream the following JSON payload is required. Remember, when sending this to the MVR,
+  the |Header|Payload| protocol must be adhered to.
+
+   {
+        "message": {
+          "type": "mic",
+          "payload": {
+            "command": 1,
+            "profile": 1
+            "ip": 192.168.0.1
+            "port": 8001
+            "client_id": "my_client_id"
+            "stream_version": 1
+            "id": 24
+          }
+        }
+   }
+
+   command           Start or Stop (1=Start, 2=Stop). Alternatively, close the TCP connection to stop
+   period            Time period in seconds which this stream remains active. MVR will stop stream after
+                     this period elapses. A period of 0 implies stream indefinitely
+   ip                IPV4 target ip to target. If not specified, system will use the configured dAPI address.
+                     DNS is supported
+   port              Target port. . If not specified, system will use the configured dAPI port
+   client_id         Optional field where client can specify their own string id. If present the Welcome
+                     message will contain the same client_id (see section 2.2 for details)
+   stream_version (optional) field specified the video/audio stream version to use. If absent, stream
+                     version defaults to 1. Supported options are 1 (see 2.4) or 2 (see 2.6). If another value
+                     is used, system defaults to 1. The Welcome packet on the connection will specify the
+                     stream version
+   Id                (optional) This field allows end-point to specify an id that is included on every
+                     video/audio frame. This can be used to identify frames belong to requests. Only valid
+                     if stream_version==2, otherwise it is ignored. Supported values are 0-254.
+
+  Once started, the MVR will stream video down the video/audio port (see Video streaming header). Any
+  errors are reporting via the JSON error payload. (See Error Message, below.)
+
+
+005-20210707-324 Rev 17                        29 April 2025                                                10
+                            Confidential. Only to be released under NDA
+
+
+   2.3.4 Error Message
+
+   All errors on all connected channels are reported via the JSON message type with a category and string
+   message.
+    {
+        "message": {
+          "type": "error",
+          "payload": {
+            "category": "media",
+            "message": "Camera 0 is down"
+          }
+        }
+    }
+
+
+   The following are existing categories. More categories are likely to be added in future.
+    media                     Errors related to video/audio
+    clip_upload               Errors related to clip uploads
+    event_upload              Errors related to event uploads
+    event_summary             Errors related to event summaries
+
+
+2.4 Video Streaming (Default Version 1)
+
+Raw video data is streamed on the video/audio channel. The video is encoded as H264 and packaged as
+follows.
+|Header (12 bytes) | Payload |
+
+
+   2.4.1 Header
+
+   The Header is the same as described above in Data Transport Format (2.1).
+
+
+   2.4.2 Payload
+
+   Payload is split up as follows.
+
+   | VideoHeader | Meta | H264 |
+
+
+        2.4.2.1 VideoHeader (44 bytes)
+
+         uint32_t magic          Always 0xFACEDEAD
+         uint32_t camera         Camera number (0=Road, 1=Cab)
+         uint32_t profile        Profile (0=High res, 1=low res)
+         uint32_t pts_ms         Presentation timestamp in milliseconds
+         uint32_t tsec           Frame time (seconds portion)
+         uint32_t tnsec          Frame time (nanoseconds portion)
+         uint32_t width          Width of video frame
+         uint32_t height         Height of video frame
+
+
+005-20210707-324 Rev 17                         29 April 2025                                           11
+                          Confidential. Only to be released under NDA
+
+
+       uint32_t                  Frame type (1=I_FRAME, 2=P_FRAME)
+       frame_type
+       uint32_t format           Compression format (Always 29)
+       uint32_t meta_size        The size of optionally included meta data that will directly follow this header.
+                                 At the moment this is always 0, but will change as meta data is added.
+
+
+      2.4.2.2 Meta (specified size in VideoHeader)
+
+      This is optional metadata. The type of data is yet to be defined.
+
+
+      2.4.2.3 H264
+
+      Elementary stream H264 with the SPS and PPS prepended to every I-Frame.
+
+
+2.5 Audio Streaming
+
+Raw video data is streamed on the video/audio channel. The audio is encoded as AAC and packaged as
+follows.
+|Header (12 bytes) | Payload |
+
+
+   2.5.1 Header
+
+   The Header is the same as described above in Data Transport Format (2.1).
+
+
+   2.5.2 Payload
+
+   Payload is split up as follows.
+   | AudioHeader | AAC |
+
+
+      2.5.2.1 AudioHeader (23 bytes)
+
+       uint32_t magic                Always 0xFACEBACE
+       uint32_t pts_ms               Presentation timestamp in milliseconds
+       uint32_t tsec                 Frame time (seconds portion)
+       uint32_t tnsec                Frame time (nanoseconds portion)
+       uint32_t sample_rate          Sample rate of audio in HZ
+       uint8_t format                Compression format (always 13)
+       uint8_t bits                  16
+       uint8_t channels              Mono=1 Stereo=2
+
+      2.5.2.3 AAC
+
+      Elementary stream AAC.
+
+
+
+005-20210707-324 Rev 17                           29 April 2025                                                12
+                          Confidential. Only to be released under NDA
+
+
+2.6 Video Streaming (Version 2)
+
+An expanded video streaming format is supported that supports uniquely identifying the video stream
+sessions. Payload data is modified with an expanded header.Raw video data is streamed on the
+video/audio channel. The video is encoded as H264 and packaged as follows.
+|Header (12 bytes) | Payload |
+
+
+   2.6.1 Header
+
+   The Header is the same as described above in Data Transport Format (2.1).
+
+
+   2.6.2 Payload
+
+   Payload is split up as follows.
+
+   | VideoHeaderV2 | Meta | H264 |
+
+
+      2.6.2.1 VideoHeaderV2 (56 bytes)
+
+       uint32_t magic            Always 0xFACEDEAE
+       uint32_t camera           Camera number (0=Road, 1=Cab)
+       uint32_t profile          Profile (0=High res, 1=low res)
+       uint32_t pts_ms           Presentation timestamp in milliseconds
+       uint32_t tsec             Frame time (seconds portion)
+       uint32_t tnsec            Frame time (nanoseconds portion)
+       uint32_t width            Width of video frame
+       uint32_t height           Height of video frame
+       uint32_t                  Frame type (1=I_FRAME, 2=P_FRAME)
+       frame_type
+       Uint16_t format           Compression format (Always 29)
+       int16_t dto               Display time offset of video stream
+       uint32_t meta_size        The size of optionally included meta data that will directly follow this header. At
+                                 the moment this is always 0, but will change as meta data is added.
+       uint8_t id                Connection id as specified in the start streaming command
+       uin8_t spare[11]          11 bytes of expansion space (will always be 0)
+
+
+      2.6.2.2 Meta (specified size in VideoHeaderV2)
+
+      This is optional metadata. The type of data is yet to be defined.
+
+
+      2.6.2.3 H264
+
+      Elementary stream H264 with the SPS and PPS prepended to every I-Frame.
+
+
+
+
+005-20210707-324 Rev 17                           29 April 2025                                                13
+                          Confidential. Only to be released under NDA
+
+
+2.7 Audio Streaming
+
+Raw video data is streamed on the video/audio channel. The audio is encoded as AAC and packaged as
+follows.
+|Header (12 bytes) | Payload |
+
+
+   2.7.1 Header
+
+   The Header is the same as described above in Data Transport Format (2.1).
+
+
+   2.7.2 Payload
+
+   Payload is split up as follows.
+   | AudioHeader | AAC |
+
+
+      2.7.2.1 AudioHeader (23 bytes)
+
+       uint32_t magic                Always 0xFACEBACF
+       uint32_t pts_ms               Presentation timestamp in milliseconds
+       uint32_t tsec                 Frame time (seconds portion)
+       uint32_t tnsec                Frame time (nanoseconds portion)
+       uint32_t sample_rate          Sample rate of audio in HZ
+       uint8_t format                Compression format (always 13)
+       uint8_t bits                  16
+       uint8_t channels              Mono=1 Stereo=2
+       uint8_t id                    Id of stream (same as specified in stream request)
+       uint8_t spare[7]              Spare bytes. Always 0
+
+      2.7.2.3 AAC
+
+      Elementary stream AAC.
+
+
+
+
+005-20210707-324 Rev 17                           29 April 2025                                14
+                        Confidential. Only to be released under NDA
+
+
+3. Fetching Recorded Video
+
+3.1 Request Continuous Recording Summary
+
+The request returns a summary of continuous recording start and end times.
+
+
+   3.1.1 Making the Request
+
+   To request continuous footage the following JSON payload is required to be sent on the CONTROL
+   channel. Remember, when sending this to the MVR, the |Header|Payload| protocol must be adhered to.
+    {
+    "message": {
+       "type":"request_ring_summary",
+       "payload": {
+         "camera":0
+         }
+       }
+    }
+
+    camera       Camera to request 0=Road 1=Cab
+
+   Response
+    {
+        'message': {
+        'type': 'ring_summary',
+        'payload': {
+           'camera': 0,
+           'dto': 4
+           'ring': {
+             'profiles': [
+              {
+                'profile': 0
+              },
+              {
+              'profile': 1,
+               'regions': [
+                 {
+                    'start_utc': 1628090395,
+                    'end_utc': 1628092677
+                 },
+                 {
+                    'start_utc': 1628152237,
+                    'end_utc': 1628154024
+                 },
+               ]
+             }
+           ]
+         }
+    }
+
+
+    camera       Camera to request 0=Road 1=Cab
+    profile      Profile to request 0=High 1=Low
+    utc          Utc of the continuous recording
+005-20210707-324 Rev 17                      29 April 2025                                        15
+                          Confidential. Only to be released under NDA
+
+
+3.2 Fetching Continuously Recorded Footage
+
+Recorded footage is uploaded at mp4 files.
+
+
+   3.2.1 Making the Request
+
+   To request continuous footage the following JSON payload is required to be sent on the CONTROL
+   channel. Remember, when sending this to the MVR, the |Header|Payload| protocol must be adhered to.
+
+    {
+        "message": {
+          "type": "request_clip",
+          "payload": {
+            "camera": 1,
+            "profile": 1
+            "ip": 192.168.0.1
+            "port": 8001
+            "start_utc": 1627384797
+            "end_utc": 1627384897
+            "client_id": "my_client_id"
+            "resume": 0
+          }
+        }
+    }
+
+
+
+    camera         Camera to request 0=Road 1=Cab
+    Profile        Profile to request 0=High 1=Low
+    Ip             IPV4 target ip to target. This field is mandatory. DNS names not yet supported
+    Port           Target port. This field is mandatory
+    start_utc      Start epoch
+    end_utc        End epoch
+    resume         Resume transmission from ‘x’ bytes
+    client_id      Optional field where client can specify their own string id. If present the Welcome
+                   message will contain the same client_id (see section 2.2 for details)
+   Note:
+
+   •    A maximum request period of 300 seconds is supported and a minimum of 5 seconds. Any requests
+        over this will generate an error (see Error section)
+   •    The MVR5 caches continuously recorded footage in 2-minute buckets. The result is that requests
+        within the latest 2 minutes will not have reached the disk yet and will likely fail. Ensure all requests
+        have an end time that is earlier than 2 minutes ago.
+   •    Depending on system load, SD card performance and length of request, it can take between 30s to
+        a minute or 2 to construct the required video clip.
+
+   The unit will construct the clip and send the data to the ip:port target. Any errors will be sent to this target
+   as well. The resulting file is uploaded in chunks following the Data transport format (see 2.1). The type
+   field in the HEADER is 5 (Video clip).
+
+   The PAYLOAD is made up of a ClipHeader followed by the chunk of data.
+
+
+
+
+005-20210707-324 Rev 17                           29 April 2025                                                 16
+                         Confidential. Only to be released under NDA
+
+
+     3.2.2 ClipHeader (36 bytes)
+
+      uint32_t magic          Always 0xDEAF1234
+      uint32_t camera         Camera for clip
+      uint32_t profile        Profile for clip
+      uint32_t start_utc      The request start epoch
+      uint32_t end_utc        The request end epoch
+      uint32_t chunk_offset   The offset in the file that this chunk belongs too (in bytes)
+      uint32_t file_size      The file size
+      uint32_t start_chunk    Set to 1 if this is the first chunk of the file otherwise 0
+      uint32_t end_chunk      Set to 1 if this is the last chunk of the file otherwise 0
+     Reception of a video clip requires parsing the HEADER|PAYLOAD stream, then parsing the PAYLOAD for
+     the ClipHeader and data and then appending the data to the output file.
+
+
+3.3 Request Event Summary
+
+A summary of events on the unit can be request on the CONTROL channel via the following:
+ {
+     "message": {
+       "type": "request_event_summary"
+     }
+ }
+The MVR will respond with a JSON array (limited to 1000) of ‘events’ in the following format.
+ {
+       'message': {
+         'type': 'event_summary',
+         'payload': {
+           'events': [
+             {
+               'type': 'sensor',
+               'guid': 6169200056586,
+               'utc': 1627019530,
+               'linear_g': 0.974,
+               'latitude': -29.8442,
+               'dto': 4,
+               'longitude': 30.9129,
+               'speed': 0,
+               'lateral_g': 0.338
+             },
+             {
+               'guid': 6169200057060,
+               'utc': 1627020004,
+               'linear_g': 0.047,
+               'latitude': -29.8442,
+               'longitude': 30.9129,
+               'speed': 0,
+               'dto': 4,
+               'lateral_g': -1.154,
+               'type': 'sensor'
+             }
+           ]
+         }
+       }
+005-20210707-324 Rev 17                        29 April 2025                                        17
+                         Confidential. Only to be released under NDA
+
+
+ }
+
+ guid          64-bit unique identifier for event
+ utc           Epoch time of event
+ linear_g      Linear g-force at event (float)
+ lateral_g     Lateral g-force at event (float)
+ latitude      Latitude at event (float)
+ longitude     Longitude at event (float)
+ speed         Speed in meters per second
+ dto           Display time offset (char) in 15-minute intervals (1=15minute, -2=-30minute)
+ type          Type of event trigger,
+               Sensor – triggered from accelerometer/gyro
+               Button – triggered from user button press
+               Distraction – AI distraction trigger
+               Fatigue – AI fatigue trigger
+               Seatbelt – AI seatbelt trigger
+
+
+3.4 Request Video for Event
+
+The video for a particular event can be requested using the GUID of the summary (see 3.2). To request the
+video, the request event must be issued as follows on the CONTROL channel.
+ {
+     "message": {
+       "type": "request_event",
+       "payload": {
+         "camera": 1,
+         "profile": 1
+         "ip": 192.168.0.1
+         "port": 8001
+         "guid": 6169200057060
+         "client_id": "my_client_id"
+         "resume": 0
+       }
+     }
+ }
+
+ camera        Camera to request 0=Road 1=Cab
+ Profile       Profile to request 0=High 1=Low
+ Ip            IPV4 target ip to target. This field is mandatory. DNS names not yet supported.
+ Port          Target port. This field is mandatory.
+ Guid          Guid of the event as per summary request
+ resume        Resume transmission from ‘x’ bytes
+ client_id     Optional field where client can specify their own string id. If present the Welcome message
+               will contain the same client_id (see section 2.2 for details)
+
+The data is transported in exactly the same way as the clip request (3.1) except that in the ClipHeader, the
+start_utc is now the upper 32 bits of the guid and the end_utc field is the lower 32 bits of the guid.
+Note: The user must know which camera/profile pairs are recorded for an event. If they do not know, they
+can request 4 events with the same guid for the 4 camera,profile pairs and the MVR will upload the videos
+that are there and return an error for the videos that are not there.
+005-20210707-324 Rev 17                        29 April 2025                                             18
+                        Confidential. Only to be released under NDA
+
+
+4. Event Messages
+
+The MVR5 will send a message when an event occurs. The Event message takes the following format
+
+ {
+     "message": {
+       "type": "event",
+       "payload": {
+         "speed_mps": 1,
+         "latitude": 30.912912
+         "longitude": -29.844234
+         "name": “idle_starts”
+         "utc": 1630329311
+         "sub0": 0.0
+         "sub1": 0.0
+         "bearing": 0,
+         "speed": 0,
+         "dist": 0.0033255,
+         "bearing_acc": 0,
+         "age": 0
+         "accuracy": 9.65
+         "altitude": 296
+         "altitude_acc": 0
+         "satellites": 13
+         "meancn0": 21
+         "maxcn0": 29
+         "odometer": 56773
+       }
+     }
+ }
+
+
+ speed_mps     Speed in meters per second
+ latitude      GPS latitude
+ Iongitude     GPS longitude
+ name          Event name – see below for supported events.
+ utc           Time event was generated
+ sub0          Optional sub data (double). May or may not be present
+ sub1          Optional sub data 1 (double). May or may not be present
+ bearing       Bearing of the vehicle (0.0, 360.0], where 0.0 is unknown and 360.0 is North
+ bearing_acc   Accuracy of bearing in degree. For example, if bearing is 20 degrees and bearing_acc is
+               5, then the probability is that the true bearing is between 15 and 25 degrees
+ accuracy      Accuracy of the location, radial, in meters. 0.0 if unavailable
+ altitude      Altitude in meters, 0.0 if unavailable
+ altitude_acc Accuracy in meters of altitude
+ satellites    Number of satellites found
+ meancn0       The average measured C/N0 for the signal
+ maxcn0        The maximum measure C/N0
+ odometer      Odometer reading in meters
+
+005-20210707-324 Rev 17                        29 April 2025                                             19
+                         Confidential. Only to be released under NDA
+
+
+4.1 Supported Events
+
+ Event name         Description
+ ignition_on        Unit ignition is on
+ ignition_off       Unit ignition is off
+ gps_lock           GPS found lock
+ gps_lost           GPS lost lock
+ button_pressed     Unit button has been pressed
+ idle_starts        Vehicle has been idling for longer than configured period (default is 3 minutes). The
+                    event time is backdated by the configured period (default 3 minutes)
+ idle_stops         Vehicle has stopped idling
+ idle_periodic      Vehicle has idled for configured periodic interval (default is 5 minutes)
+ tamper             AI tamper triggered
+ fatigue            AI fatigue triggered
+ distraction        AI distraction triggered
+ seatbelt           AI seatbelt triggered
+ yawn               AI yawn triggered
+ cellphone          AI cellphone triggered
+ passenger          AI passenger triggered
+ harsh_braking      Triggered when G-force exceeds configured braking point
+ harsh_turning      Triggered when G-force exceeds configured turning point
+ harsh_acceleration Triggered when G-force exceeds configured acceleration point
+ speeding           Triggered when unit exceeds configured speed limit for configure period
+ followingdistance  Triggered when the unit detects that the vehicle has violated the following distance
+                    restrictions
+ call_started       A phone call has been started. This event will have a ‘message’ field that contains
+                    the source number of the call
+ call_ended         A phone call has been ended. This event will have a ‘message’ field that contains
+                    the source number of the call
+ power_loss         The unit has lost power
+ deep_sleep         The unit has entered deep sleep
+ entered_standby    The unit has entered standby mode
+ wake_dapi_on       A dAPI message has caused the unit to wake from standby (eg request for live)
+ wake_dapi_off      The unit re-enters standby after being woken
+ wake_imu_on        An IMU event has caused the unit to wake from standby
+ wake_imu_off       The unit re-enters standby after being woken
+
+
+
+
+005-20210707-324 Rev 17                       29 April 2025                                             20
+                          Confidential. Only to be released under NDA
+
+
+5. Config
+
+5.1 Request Unit Config
+
+Send a request for the unit config to the unit. Section 5.2 details the response.
+ {
+     "message": {
+       "type": "request_config"
+     }
+ }
+
+
+
+5.2 Request Unit Config Response
+
+The unit will return the config in the following format.
+ {
+     "message": {
+       "type": "unit_config",
+       "payload": {
+         "cameras": [
+           {
+             "enabled": true,
+             "profiles": [
+               {
+                 "record_events": true,
+                 "enabled": true,
+                 "index": 0,
+                 "bitrate_bps": 2000000,
+                 "record_continuous": true,
+                 "audio": true,
+                 "fps": 25
+               },
+               {
+                 "fps": 25,
+                 "enabled": true,
+                 "index": 1,
+                 "bitrate_bps": 400000,
+                 "record_events": true,
+                 "record_continuous": false,
+                 "audio": true
+               }
+             ],
+             "index": 0
+           },
+           {
+             "enabled": true,
+             "profiles": [
+               {
+                 "audio": true,
+                 "fps": 25,
+                 "enabled": true,
+                 "bitrate_bps": 2000000,
+                 "record_events": true,
+                 "index": 0,
+                 "record_continuous": true
+               },
+005-20210707-324 Rev 17                          29 April 2025                      21
+                      Confidential. Only to be released under NDA
+
+
+                {
+                    "enabled": true,
+                    "audio": true,
+                    "index": 1,
+                    "bitrate_bps": 400000,
+                    "record_events": true,
+                    "record_continuous": false,
+                    "fps": 25
+               }
+             ],
+             "index": 1
+          }
+        ],
+        "network": {
+          "apn_passwd": "",
+          "apn_user": "",
+          "address": "192.168.1.105",
+          "port": 33010,
+          "apn": "internet"
+        },
+        "general": {
+          "odometer": 0,
+          "gps_frequency": 10,
+          "is_metric": true,
+          "disable_audio_prompts": false,
+          "enable_voice_prompts": true,
+          "driver_sits_on_right": false,
+          "serial_number": ""
+          "account": "unassigned"
+        },
+        "events": [
+          {
+            "event": [
+              [
+                "enable",
+                "1"
+              ],
+              [
+                "name",
+                "harsh_braking"
+              ],
+              [
+                "period_ms",
+                "1000"
+              ],
+              [
+                "post",
+                "5"
+              ],
+              [
+                "pre",
+                "5"
+              ],
+              [
+                "record",
+                "1"
+              ],
+              [
+                "threshold",
+                "0.50"
+
+005-20210707-324 Rev 17                   29 April 2025             22
+                      Confidential. Only to be released under NDA
+
+
+               ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "enable",
+                 "0"
+               ],
+               [
+                 "name",
+                 "harsh_turning"
+               ],
+               [
+                 "period_ms",
+                 "1000"
+               ],
+               [
+                 "post",
+                 "5"
+               ],
+               [
+                 "pre",
+                 "5"
+               ],
+               [
+                 "record",
+                 "1"
+               ],
+               [
+                 "threshold",
+                 "0.10"
+               ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "enable",
+                 "0"
+               ],
+               [
+                 "name",
+                 "harsh_acceleration"
+               ],
+               [
+                 "period_ms",
+                 "1000"
+               ],
+               [
+                 "post",
+                 "5"
+               ],
+               [
+                 "pre",
+                 "5"
+               ],
+               [
+                 "record",
+                 "1"
+
+005-20210707-324 Rev 17                   29 April 2025             23
+                      Confidential. Only to be released under NDA
+
+
+                ],
+                [
+                  "threshold",
+                  "0.10"
+                ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "enable",
+                 "0"
+               ],
+               [
+                 "name",
+                 "overspeeding"
+               ],
+               [
+                 "period_ms",
+                 "5000"
+               ],
+               [
+                 "post",
+                 "5"
+               ],
+               [
+                 "pre",
+                 "5"
+               ],
+               [
+                 "record",
+                 "1"
+               ],
+               [
+                 "threshold",
+                 "0.28"
+               ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "enable",
+                 "0"
+               ],
+               [
+                 "period",
+                 "300"
+               ],
+               [
+                 "speed_mps",
+                 "1.667"
+               ],
+               [
+                 "start",
+                 "180"
+               ]
+             ]
+           },
+           {
+
+005-20210707-324 Rev 17                   29 April 2025             24
+                      Confidential. Only to be released under NDA
+
+
+             "event": [
+               [
+                 "alert",
+                 "0"
+               ],
+               [
+                 "audio",
+                 "0"
+               ],
+               [
+                 "debug",
+                 "0"
+               ],
+               [
+                 "enable",
+                 "0"
+               ],
+               [
+                 "limit",
+                 "10"
+               ],
+               [
+                 "limit_type",
+                 "0"
+               ],
+               [
+                 "name",
+                 "tamper"
+               ],
+               [
+                 "persist",
+                 "10"
+               ],
+               [
+                 "post_s",
+                 "5"
+               ],
+               [
+                 "pre_s",
+                 "5"
+               ],
+               [
+                 "profile",
+                 "1"
+               ],
+               [
+                 "record",
+                 "0"
+               ],
+               [
+                 "threshold",
+                 "30"
+               ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "alert",
+                 "0"
+
+005-20210707-324 Rev 17                   29 April 2025             25
+                      Confidential. Only to be released under NDA
+
+
+                ],
+                [
+                  "audio",
+                  "0"
+                ],
+                [
+                  "debug",
+                  "0"
+                ],
+                [
+                  "duration_sec",
+                  "2"
+                ],
+                [
+                  "enable",
+                  "1"
+                ],
+                [
+                  "limit",
+                  "10"
+                ],
+                [
+                  "limit_type",
+                  "0"
+                ],
+                [
+                  "name",
+                  "fatigue"
+                ],
+                [
+                  "post_s",
+                  "5"
+                ],
+                [
+                  "pre_s",
+                  "5"
+                ],
+                [
+                  "profile",
+                  "1"
+                ],
+                [
+                  "record",
+                  "0"
+                ],
+                [
+                  "speed_mps",
+                  "15"
+                ],
+                [
+                  "threshold",
+                  "30"
+                ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "alert",
+                 "0"
+
+005-20210707-324 Rev 17                   29 April 2025             26
+                      Confidential. Only to be released under NDA
+
+
+                ],
+                [
+                  "audio",
+                  "0"
+                ],
+                [
+                  "debug",
+                  "0"
+                ],
+                [
+                  "enable",
+                  "0"
+                ],
+                [
+                  "limit",
+                  "10"
+                ],
+                [
+                  "limit_type",
+                  "0"
+                ],
+                [
+                  "name",
+                  "passenger"
+                ],
+                [
+                  "post_s",
+                  "5"
+                ],
+                [
+                  "pre_s",
+                  "5"
+                ],
+                [
+                  "profile",
+                  "1"
+                ],
+                [
+                  "record",
+                  "0"
+                ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "active_pcnt",
+                 "70"
+               ],
+               [
+                 "alert",
+                 "0"
+               ],
+               [
+                 "audio",
+                 "0"
+               ],
+               [
+                 "debug",
+                 "0"
+
+005-20210707-324 Rev 17                   29 April 2025             27
+                      Confidential. Only to be released under NDA
+
+
+                ],
+                [
+                  "duration_sec",
+                  "2"
+                ],
+                [
+                  "enable",
+                  "0"
+                ],
+                [
+                  "limit",
+                  "10"
+                ],
+                [
+                  "limit_type",
+                  "0"
+                ],
+                [
+                  "name",
+                  "distraction"
+                ],
+                [
+                  "pitch_threshold",
+                  "18"
+                ],
+                [
+                  "post_s",
+                  "5"
+                ],
+                [
+                  "pre_s",
+                  "5"
+                ],
+                [
+                  "profile",
+                  "1"
+                ],
+                [
+                  "record",
+                  "0"
+                ],
+                [
+                  "speed_mps",
+                  "15"
+                ],
+                [
+                  "use_bearing",
+                  "0"
+                ],
+                [
+                  "yaw_threshold",
+                  "30"
+                ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "alert",
+                 "0"
+
+005-20210707-324 Rev 17                   29 April 2025             28
+                      Confidential. Only to be released under NDA
+
+
+                ],
+                [
+                  "audio",
+                  "0"
+                ],
+                [
+                  "debug",
+                  "0"
+                ],
+                [
+                  "enable",
+                  "0"
+                ],
+                [
+                  "limit",
+                  "10"
+                ],
+                [
+                  "limit_type",
+                  "0"
+                ],
+                [
+                  "measure_period_s",
+                  "15"
+                ],
+                [
+                  "name",
+                  "seatbelt"
+                ],
+                [
+                  "percent",
+                  "10"
+                ],
+                [
+                  "post_s",
+                  "5"
+                ],
+                [
+                  "pre_s",
+                  "5"
+                ],
+                [
+                  "profile",
+                  "1"
+                ],
+                [
+                  "record",
+                  "0"
+                ],
+                [
+                  "speed_mps",
+                  "10"
+                ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "alert",
+                 "0"
+
+005-20210707-324 Rev 17                   29 April 2025             29
+                      Confidential. Only to be released under NDA
+
+
+                ],
+                [
+                  "audio",
+                  "0"
+                ],
+                [
+                  "debug",
+                  "0"
+                ],
+                [
+                  "duration_sec",
+                  "2"
+                ],
+                [
+                  "enable",
+                  "0"
+                ],
+                [
+                  "limit",
+                  "10"
+                ],
+                [
+                  "limit_type",
+                  "0"
+                ],
+                [
+                  "name",
+                  "yawn"
+                ],
+                [
+                  "post_s",
+                  "5"
+                ],
+                [
+                  "pre_s",
+                  "5"
+                ],
+                [
+                  "profile",
+                  "1"
+                ],
+                [
+                  "record",
+                  "0"
+                ],
+                [
+                  "sensitivity",
+                  "15"
+                ],
+                [
+                  "speed_mps",
+                  "15"
+                ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "active_pcnt",
+                 "80"
+
+005-20210707-324 Rev 17                   29 April 2025             30
+                      Confidential. Only to be released under NDA
+
+
+                 ],
+                 [
+                   "alert",
+                   "0"
+                 ],
+                 [
+                   "alert_after",
+                   "5"
+                 ],
+                 [
+                   "audio",
+                   "0"
+                 ],
+                 [
+                   "debug",
+                   "0"
+                 ],
+                 [
+                   "enable",
+                   "0"
+                 ],
+                 [
+                   "limit",
+                   "10"
+                 ],
+                 [
+                   "limit_type",
+                   "0"
+                 ],
+                 [
+                   "name",
+                   "cellphone"
+                 ],
+                 [
+                   "post_s",
+                   "5"
+                 ],
+                 [
+                   "pre_s",
+                   "5"
+                 ],
+                 [
+                   "profile",
+                   "1"
+                 ],
+                 [
+                   "record",
+                   "0"
+                 ],
+                 [
+                   "speed_mps",
+                   "15"
+                 ],
+                 [
+                   "threshold",
+                   "70"
+                 ]
+             ]
+           },
+           {
+
+005-20210707-324 Rev 17                   29 April 2025             31
+                      Confidential. Only to be released under NDA
+
+
+             "event": [
+               [
+                 "alert",
+                 "0"
+               ],
+               [
+                 "audio",
+                 "0"
+               ],
+               [
+                 "debug",
+                 "0"
+               ],
+               [
+                 "enable",
+                 "0"
+               ],
+               [
+                 "limit",
+                 "10"
+               ],
+               [
+                 "limit_type",
+                 "0"
+               ],
+               [
+                 "name",
+                 "tamper"
+               ],
+               [
+                 "persist",
+                 "10"
+               ],
+               [
+                 "post_s",
+                 "5"
+               ],
+               [
+                 "pre_s",
+                 "5"
+               ],
+               [
+                 "profile",
+                 "1"
+               ],
+               [
+                 "record",
+                 "0"
+               ],
+               [
+                 "threshold",
+                 "30"
+               ]
+             ]
+           },
+           {
+             "event": [
+               [
+                 "alert",
+                 "0"
+
+005-20210707-324 Rev 17                   29 April 2025             32
+                             Confidential. Only to be released under NDA
+
+
+                         ],
+                         [
+                           "audio",
+                           "0"
+                         ],
+                         [
+                           "debug",
+                           "0"
+                         ],
+                         [
+                           "enable",
+                           "1"
+                         ],
+                         [
+                           "height",
+                           "15"
+                         ],
+                         [
+                           "limit",
+                           "10"
+                         ],
+                         [
+                           "limit_type",
+                           "0"
+                         ],
+                         [
+                           "linger_timer",
+                           "3"
+                         ],
+                         [
+                           "name",
+                           "followingdistance"
+                         ],
+                         [
+                           "post_s",
+                           "5"
+                         ],
+                         [
+                           "pre_s",
+                           "5"
+                         ],
+                         [
+                           "profile",
+                           "1"
+                         ],
+                         [
+                           "record",
+                           "0"
+                         ],
+                         [
+                           "speed_mps",
+                           "5"
+                         ]
+                     ]
+                 }
+             ]
+         }
+     }
+ }
+
+
+005-20210707-324 Rev 17                          29 April 2025             33
+                         Confidential. Only to be released under NDA
+
+
+5.2 Edit/Set Unit Config
+
+Setting unit config is achieved by sending the ‘update_config’ message with the config in the payload. Most
+config options are optional (ie only send what changes) but there are a few that are mandatory for each
+config section.
+ {
+     "message": {
+       "type": "update_config",
+       "payload": {
+         // various configuration options as per request config
+       }
+     }
+ }
+NB - Editing the config will cause the device to reboot for the changes to take effect.
+NB - All config options can and should be sent in a single message. Each section below describes the
+various config sections available.
+
+
+     5.2.2 General Config
+
+     Example
+      {
+        "message": {
+           "type": "update_config",
+           "payload": {
+             "general": {
+               "odometer": 0,
+               "gps_frequency": 10,
+               "is_metric": true,
+               "disable_audio_prompts": false,
+               "enable_voice_prompts": true,
+               "driver_sits_on_right": false,
+               "serial_number": "CAT123456",
+               "account": "unassigned"
+
+                 }
+             }
+         }
+     }
+     is_metric             Optional (unless odometer Indicates whether device is metric (kph) or
+                           specified, then mandatory) not (mph).
+     odometer              Optional                   Set the odometer reference point in kph or
+                                                      mph depending on is_metric.
+     gps_frequency         Optional                   Frequency in seconds that GPS updates need
+                                                      to be sent.
+     disable_audio_prompts Optional                   Set to true if all audio prompts must be
+                                                      silenced.
+     enable_voice_prompts Optional                    Set to true if voice prompts (as opposed to
+                                                      bell alerts) are required.
+     driver_sits_on_right  Optional                   Set to true if driver sits on right side of cab.
+     serial_number         Optional                   Change device serial number.
+     account               Mandatory                  The name of the account. Set to ‘unassigned’
+                                                      if account has not been set
+
+005-20210707-324 Rev 17                        29 April 2025                                             34
+                      Confidential. Only to be released under NDA
+
+
+  5.2.3 Network Config
+
+   {
+       "message": {
+         "type": "update_config",
+         "payload": {
+           "network": {
+             "apn_passwd": "",
+             "apn_user": "",
+             "address": "directapi.catdynamics.co.za",
+             "port": 33010,
+             "apn": "internet"
+           }
+         }
+       }
+   }
+
+
+
+    apn_passwd             Optional              APN password
+    apn_user               Optional              APN user
+    apn                    Optional              APN name
+    address                Optional              Direct API address
+    port                   Optional              Direct API Port
+
+
+
+  5.2.4 Camera Config
+
+   {
+       "message": {
+         "type": "update_config",
+               "cameras": [
+             {
+               "enabled": true,
+               "profiles": [
+                 {
+                    "record_events": true,
+                    "enabled": true,
+                    "index": 0,
+                    "bitrate_bps": 2000000,
+                    "record_continuous": true,
+                    "audio": true,
+                    "fps": 25
+                 },
+                 {
+                    "fps": 25,
+                    "enabled": true,
+                    "index": 1,
+                    "bitrate_bps": 400000,
+                    "record_events": true,
+                    "record_continuous": false,
+                    "audio": true
+                 }
+               ],
+               "index": 0
+             },
+005-20210707-324 Rev 17                   29 April 2025               35
+                           Confidential. Only to be released under NDA
+
+
+                   {
+                       "enabled": true,
+                       "profiles": [
+                         {
+                            "audio": true,
+                            "fps": 25,
+                            "enabled": true,
+                            "bitrate_bps": 2000000,
+                            "record_events": true,
+                            "index": 0,
+                            "record_continuous": true
+                         },
+                         {
+                            "enabled": true,
+                            "audio": true,
+                            "index": 1,
+                            "bitrate_bps": 400000,
+                            "record_events": true,
+                            "record_continuous": false,
+                            "fps": 25
+                         }
+                       ],
+                       "index": 1
+                   }
+               ]
+           }
+      }
+   }
+    cameras                                           array of camera settings. If one camera setting is
+                                                      present then both MUST be present
+    index                       Mandatory             Camera index. 0 for first array element and 1 for
+                                                      second. Used for internal validation
+    enabled                     Optional              Set to true to enable the camera. Default true
+    profiles                    Mandatory             Must specify BOTH profiles
+     enabled                    Optional              Set true to enable profile
+     index                      Mandatory             Profile index 0 or 1. Used internally. Profile 0 is the
+                                                      High Resolution profile (1080P). Profile 1 is Low
+                                                      Resolution (360P)
+     audio                      Optional              Set to true if this profile must record audio
+     bitrate_bps                Optional              Recording bitrate in bits per second
+     record_events              Optional              Set to true if the profile must record events
+     record_continuous          Optional              Set to true if the profile must record continuously
+     fps                        Optional              Frame rate to record at (5-25)
+
+
+
+
+005-20210707-324 Rev 17                        29 April 2025                                                36
+                       Confidential. Only to be released under NDA
+
+
+  5.2.4 Event Config
+
+  Events are configured using an array of event objects. Each object has common parameters and some
+  (advanced) custom options.
+  Each ‘event’ object has an array of key, value pairs describing the event. The available events and
+  key,value pairs are listed below.
+   {
+       "message": {
+         "type": "update_config",
+         "payload": {
+           "events": [
+             {
+               "event": [
+                 [
+                    "enable",
+                    "1"
+                 ],
+                 [
+                    "name",
+                    "harsh_braking"
+                 ],
+                 [
+                    "period_ms",
+                    "1000"
+                 ],
+                 [
+                    "post",
+                    "5"
+                 ],
+                 [
+                    "pre",
+                    "5"
+                 ],
+                 [
+                    "record",
+                    "1"
+                 ],
+                 [
+                    "threshold",
+                    "0.50"
+                 ]
+               ]
+             }
+         }
+       }
+   }
+
+  Driver Behaviour event objects
+
+   name        name of the event. Supported names are
+               harsh_braking
+               harsh_acceleration
+               overspeeding
+               harsh_turning
+               harsh_impact
+               motion_start
+005-20210707-324 Rev 17                    29 April 2025                                          37
+                         Confidential. Only to be released under NDA
+
+
+   enable        1 to enable, 0 to disable
+   period_ms     MUST BE 1000
+   post          Seconds of post event video recording (1-10)
+   pre           Seconds of pre event video recording (1-10)
+   record        Whether to automatically record a video event when triggered. 1 to
+                 enable, 0 to disable
+   threshold     Threshold value. For Harsh events, this is G force (0.1 – 0.8). For
+                 overspeeding this is meters per second
+
+  Common AI Event Settings
+
+   name             Mandatory         name of the event. Supported names are
+                                         tamper
+                                         fatigue
+                                         distraction
+                                         seatbelt
+                                         yawn
+                                         cellphone
+                                         passenger
+                                         followingdistance
+   enable           Mandatory         1 to enable, 0 to disable
+   alert            Optional          Future Use, don’t populate
+   audio            Optional          1 to enable an auditory alert when triggered, 0 to disable
+   debug            Optional          Future Use, don’t populate
+   limit            Optional          limit number of events
+   limit_type       Optional          1 – Limit applies per trip
+                                      0 – Limit applies per hour
+   post_s           Optional          Seconds to record post event
+   pre_s            Optional          Seconds to record pre event
+   record           Optional          1 – MVR5 records a video event when triggers
+                                      0 – MVR5 does not record video when triggers
+
+
+  Individual AI Event Settings
+
+  Each AI event has individual settings that can be changed. These should be used with caution and for the
+  most part, are not required.
+
+  A description of these settings to follow at a later date.
+
+
+
+
+005-20210707-324 Rev 17                         29 April 2025                                          38
+                            Confidential. Only to be released under NDA
+
+
+6. Driver Identification
+
+During a trip, if Face Recognition is enabled, the MVR5 unit will attempt to identify the driver and send a
+Globally Unique ID (GUID) and picture (JPG) of the driver to the server.
+There may be some seconds/minutes before an identification is acquired so the driver identity packet will
+most often arrive during the course of the trip. The header contains the UTC of the start of the trip, as sent
+in the ignition_on event, so the server can match trip start times with driver identities.
+If there is no connection to the server, the driver identity is cached and will be sent on the next trip.
+Note: It is possible to receive more than one GUID for the same face (e.g. if the driver is wearing a mask or
+wearing sun glasses). Thus it is important for the server to be able to match multiple GUID’s to the same
+driver identity.
+The driver id data is packaged similar to the video data (Section 2) as follows
+| Header (12 bytes) | Payload |
+
+
+   6.1 Header
+
+   The Header is the same as described above in Data Transport Format (2.1).
+
+
+   6.2 Payload
+
+   Payload is split up as follows.
+
+   | DriverHeader | Jpeg |
+
+
+      6.2.1 DriverHeader (44 bytes)
+
+        uint32_t magic           Always 0xFACEBEAD
+        uint32_t trip_utc        UTC of the start of the trip (This is the same UTC provided in the
+                                 ignition_on event)
+        uint32_t version         header version (should always be 1)
+        uint32_t size            size of header data members following. In this case size=24
+        uint32_t image_size      size of the jpeg image after the header
+        char[24] guid            GUID as a hexidecimal string
+
+
+
+
+005-20210707-324 Rev 17                          29 April 2025                                              39
+                          Confidential. Only to be released under NDA
+
+
+7. IMU Event
+
+If a harsh event occurs (acceleration, turning, impact, braking) the unit will send an IMU event payload. The
+payload contains the linear acceleration for the previous 10 seconds and post 10 seconds of the event at a
+sample rate of 100HZ, with GPS data sampled at 1HZ. This payload may not necessarily be sent directly as
+the event occurred but should be soon afterwards. The payload is timestamp’ed.
+The IMU data is packaged similar to the video data (Section 2) as follows
+| Header (12 bytes) | Payload |
+
+
+   7.1 Header
+
+   The Header is the same as described above in Data Transport Format (2.1). The Type field is set to 14 –
+   IMU data
+
+
+   7.2 Payload
+
+   The Payload is split up as follows.
+
+   | IMUHeader | JSON payload of samples |
+
+
+      7.2.1 IMUHeader (44 bytes)
+
+       uint32_t magic           Always 0xFACEBEAF
+       uint32_t trip_utc        UTC of the start of the event
+       uint32_t version         header version (should always be 1)
+       uint32_t size            size of header data members following. In this case size=24
+       uint32_t data_size       size of the json data that follows
+       char[24] name            Name of the event ‘harsh_braking’, ‘harsh_acceleration’, etc
+
+
+      7.2.2 Payload Description
+
+      The JSON payload contains an array of “items”. These contain “la” items and “gps” as per the example
+      below.
+       {
+            "items":[
+               {
+                  "la":{
+                      "z":"-0.0368",
+                      "ms":130783,
+                      "y":"0.0049",
+                      "x":"-0.0150"
+                  }
+               },
+               {
+                  "la":{
+                      "z":"-0.2552",
+                      "ms":130793,
+                      "x":"0.0149",
+
+005-20210707-324 Rev 17                         29 April 2025                                             40
+                        Confidential. Only to be released under NDA
+
+
+                        "y":"-0.0412"
+                    }
+               },
+               {
+                    "gps":{
+                       "latitude":"-25.978756",
+                       "longitude":"28.130107",
+                       "utc":1667809580,
+                       "bearing":"185.34",
+                       "speed_mps":"5.65"
+                    }
+               },
+               {
+                    "la":{
+                       "ms":150794,
+                       "y":"0.0056",
+                       "x":"-0.0095",
+                       "z":"0.0006"
+                    }
+              }
+           ],
+           "event_name":"harsh_impact",
+           "event_ms":"120445",
+           "event_utc":1667809586
+      }
+          event_name Name of the harsh event
+          event_utc  UTC timestamp of the event
+          event_ms   The millisecond value of the sensor sample at the start of the event. This helps
+                     time synchronise the ‘la’ samples with the event UTC
+          la
+          ms         Millisecond timestamp of sample
+          x          x coordinate (left/right), +ve=left
+          y          y coordinate (up/down), +ve=up
+          z          z coordinate (forwards/backwards), +ve=backwards
+          gps
+          latitude   Latitude
+          longitude  Longitude
+          utc        UTC of sample
+          bearing    Bearing in degrees
+          speed_mps Speed in metres per second
+
+
+
+
+005-20210707-324 Rev 17                     29 April 2025                                          41
+                          Confidential. Only to be released under NDA
+
+
+8. SD Card Health
+
+8.1 Making the Request
+
+Send a request for the microSD card health to the unit. Section 8.2 details the response.
+ {
+     "message": {
+       "type": "request_sd_health"
+     }
+ }
+
+
+
+8.2 Request SD Health Response
+
+The unit will return the config in the following format.
+ {
+     "message": {
+       "payload": {
+         "used_mlc": "1",
+         "spare_slc": "0",
+         "type": "WesternDigital",
+         "used_slc": "1",
+         "cid": "035344574336344780d34d362a0169",
+         "serial": "2a364dd3",
+         "spare_mlc": "0",
+         "use_pcnt": "1",
+         "total_uecc": "0",
+         "powercycle": "65535"
+       },
+       "type": "sd_health"
+     }
+ }
+
+ string type             Manufacturer of the card. Known options are WesternDigital, ADATA, Toshiba,
+                         Kingston, Samsung, Transcend. This field will always be present. If no sdcard is
+                         found this field will say ‘no_card’.
+ string cid              Contents of the microSD CID register. This field is always present.
+ string serial           Serial number of the card. This field is always present
+ Optional                There may be optional extra fields present if the card provides extra data and the
+ subsequent fields       firmware supports this. At present only WesternDigital health data is supported.
+                         Documentation on this is still TBC.
+
+
+
+
+005-20210707-324 Rev 17                          29 April 2025                                            42
+                           Confidential. Only to be released under NDA
+
+
+9. Event Preview Snapshots
+
+When events are triggered, the unit will send an event preview snapshot that contains a JPEG snapshot of
+the camera (configurable) and some data describing the event.
+The data is packaged similar to the video data (Section 2) as follows.
+| Header (12 bytes) | Payload |
+
+
+   9.1 Header
+
+   The Header is the same as described above in Data Transport Format (2.1).
+
+
+   9.2 Payload
+
+   Payload is split up as follows.
+
+   | EventPreviewHeader | Road Jpeg |Cab Jpeg |
+
+
+      9.2.1 EventPreviewHeader (84 bytes)
+
+       uint32_t magic           Always 0xFAAFAFFA
+       char[32] name            0 terminated array of characters with the event name
+       uint32_t utc             UTC of event
+       uint32_t version         Version of the header. Always 1
+       uint32_t road_size       size of the road jpeg image after the header. If this is 0 there is no road jpeg
+       uint32_t cab_size        size of the cab jpeg image after the header. If this is 0 there is no cab jpeg
+       uint8_t[32] unused       Should always be zero
+
+
+
+
+005-20210707-324 Rev 17                          29 April 2025                                                   43
+                          Confidential. Only to be released under NDA
+
+
+10. Environment Stats
+
+10.1 Making the request
+
+Send a request for environment stats to the unit. Section 8.2 details the response.
+ {
+     "message": {
+       "type": "request_environment"
+     }
+ }
+
+
+
+10.2 Request Environment Response
+
+The unit will return the config in the following format.
+ {
+     "message": {
+       "payload": {
+         "phys_mem_kB": "166676",
+         "an_avail_mem": "371290112",
+         "gpu_load": "47",
+         "an_threshold_mem": "226492416",
+         "inputV": "11.99",
+         "apc1_cpu0": "69.40",
+         "superV": "1.61",
+         "apc1_12": "73.60",
+         "case-therm": "72.30",
+         "apc1_cpu1": "67.80",
+         "apc0_cpu1": "73.30",
+         "apc1_cpu3": "74.60",
+         "wifi_ssid": "\"BT-R7A6R6\"",
+         "sys_avail_mem_kB": "440648",
+         "wifi_level": "3",
+         "apc1_cpu2": "69.10",
+         "sys_free_mem_kB": "24208",
+         "wifi_rssi": "-63",
+         "4v35Ok": "1",
+         "inputA": "0.14",
+         "qdsp": "58.66",
+         "gpu0": "70.70",
+         "gpu1": "72.70",
+         "cpu_mhz": "1804.80",
+         "sys_total_mem_kB": "1869640",
+         "Vbatt": "4386339",
+         "msp": "52.72",
+         "cell_level": "0",
+         "apc0_12": "71.40",
+         "apc0_cpu0": "74.00",
+         "apc0_cpu3": "70.40",
+         "an_total_mem": "1914511360",
+         "mdm-core": "58.75",
+         "cpu_load": "65",
+         "camera": "67.68",
+         "virt_mem_kB": "4284264",
+         "an_low_mem": "0",
+005-20210707-324 Rev 17                          29 April 2025                        44
+                      Confidential. Only to be released under NDA
+
+
+           "apc0_cpu2": "74.00"
+         },
+         "type": "environment"
+     }
+ }
+
+ msp                 Temperature read by the controller uC. Represents the temperature read on the
+                     PCB
+ apc0_cpu0           On die temperature of cpu0
+ apc0_cpu1           On die temperature of cpu1
+ apc0_cpu2           On die temperature of cpu2
+ apc0_cpu3           On die temperature of cpu3
+ apc0_12             Temperature of unspecified location
+ apc1_cpu0           On die temperature of cpu4
+ apc1_cpu1           On die temperature of cpu5
+ apc1_cpu2           On die temperature of cpu6
+ apc1_cpu3           On die temperature of cpu7
+ apc1_12             Temperature of unspecified location
+ gpu0                Temperature of gpu
+ case-therm          Temperature at case junction
+ mdm-core            Temperature of mdm
+ superV              Voltage of the backup supercap
+ inputV              Voltage measured at input (After protection circuitry)
+ inputA              Measurement of current in Amps
+
+ cpu_load            Load on CPU
+ gpu_load            Load on GPU
+ cpu_mhz             Current clock speed of CPU
+
+
+
+
+005-20210707-324 Rev 17                    29 April 2025                                             45
+                          Confidential. Only to be released under NDA
+
+
+11. Reboot Unit
+
+11.1 Making the Request
+
+Send a request to reboot to the unit. This will cause the unit to reboot itself immediately.
+ {
+     "message": {
+       "type": "reboot_unit"
+     }
+ }
+
+
+
+
+12. Stream Review
+
+12.1 Making the Request
+
+Send a request for a review on the control session (similar to live) with connection details as below
+ {
+     "message": {
+       "type":"request_review"
+       "payload": {
+         "profile":0
+         "port":8007
+         "ip":"cathexis.review.co.za"
+         "client_id":"my_client_id"
+         "camera":1
+         "stream_version":1
+        }
+      }
+ }
+
+
+
+     profile                Profile to request (0-high res, 1-low res)
+     camera                 Camera (0-Road, 1-Cab)
+     port                   Port to connect to
+     ip                     Ip/name to connect to
+                            Optional string id. This id gets sent with the Welcome packet when review
+     client_id
+                            session successfully connects
+                            Optional setting of stream version to use (see 2.4,5,6,7). If absent default is
+     stream_version
+                            1
+
+
+
+
+005-20210707-324 Rev 17                         29 April 2025                                                 46
+                          Confidential. Only to be released under NDA
+
+
+
+
+Once a review is requested the MVR5 will attempt to connect to the endpoint using the connection details
+provided. Once the connection is established, a Welcome packet will be sent (see Section 2.2). The session
+is now Idle until a stream command is sent.
+
+12.2 Stream command
+
+All review commands are issued as ‘stream_review_command’
+
+ {
+     "message": {
+       "type":"stream_review_command"
+       "payload": {
+         "utc":1739444015
+         "command":1
+         "id":34
+        }
+      }
+ }
+
+
+
+     Utc                    UTC where to start playing from
+     command                1-PlayFrom, 2-Pause,3-Resume
+                            Optional id field. If present AND stream_version=2 (from 12.1), then all
+                            video/audio packets streamed contain this id in the header (see 2.6 and
+                            2.7). Supported ids 0-254
+     id
+                            This is useful when sending a new PlayFrom while playing an existing
+                            review as the endpoint can identify frames arriving for the new PlayFrom
+                            and drop those that may have been cached on the network
+
+
+      12.2.1 PlayFrom
+
+
+Initiate a review by sending a PlayFrom command with a UTC value. The MVR5 will start streaming video
+from the closest recorded video to the UTC. If the UTC is 0, review will start from the beginning of the
+database. If the UTC is later than latest recorded footage, review will start streaming from the last few
+seconds of recorded footage.
+
+Issuing PlayFrom will automatically pause review streaming and restart at the new UTC
+
+Initiating review via PlayFrom is a heavy sdcard I/O task and as such it can take time before streaming starts
+after a PlayFrom. This depends on the existing load on the MVR5 but, at time of writing, this was measured
+to be anywhere between 4 and 8 seconds.
+
+      12.2.2 Pause
+
+
+Pause streaming of review frames.
+
+      12.2.3 Resume
+
+
+Resume streaming of review frames.
+005-20210707-324 Rev 17                         29 April 2025                                               47
+                          Confidential. Only to be released under NDA
+
+
+
+
+12.3 Review streaming format
+
+Review streams follow the same format as the live stream. See 2.4,2.5,2.6,2.7.
+
+12.4 Review termination
+
+Review is terminated when a NULL video frame is sent. This is a frame where the Payload in the
+
+|Header (12 bytes) | Payload | (see 2.4,2.6)
+
+
+Contains only a VideoHeader or VideoHeaderV2 where the following fields are set to 0
+
+       uint32_t pts_ms         Presentation timestamp in milliseconds
+       uint32_t tsec           Frame time (seconds portion)
+       uint32_t tnsec          Frame time (nanoseconds portion)
+       uint32_t width          Width of video frame
+       uint32_t height         Height of video frame
+
+
+Once the last frame is sent, the review session is Idle until the endpoint closes the connection or issues a
+new PlayFrom command.
+
+12.5 Review Errors
+
+Errors are sent as JSON payload messages on the review channel (not the control channel) in the following
+format
+
+ {
+     "message": {
+       "type":"status"
+       "payload": {
+         "utc":0
+         "category":"error"
+         "text":"my specific error message"
+        }
+      }
+ }
+
+
+
+     utc                    UTC when the error was generated
+     category               Always “error”
+     text                   String message detailing what the error was
+
+
+
+
+13. Conclusion
+
+For support, contact support@catdynamics.co.za
+
+005-20210707-324 Rev 17                         29 April 2025                                                  48
+                      Confidential. Only to be released under NDA
+
+
+
+
+005-20210707-324 Rev 17                   29 April 2025             49
+
