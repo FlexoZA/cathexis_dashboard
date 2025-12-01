@@ -124,6 +124,21 @@ export function VideoPlayerDialog({ clip, open, onOpenChange }: VideoPlayerDialo
         }
         playerRef.current = null
       }
+
+      // Also dispose any Video.js players that might be associated with this container
+      try {
+        const players = videojs.getPlayers()
+        Object.keys(players).forEach(playerId => {
+          const player = players[playerId]
+          if (player && player.el() && containerRef.current && containerRef.current.contains(player.el())) {
+            console.log("DEBUG::VideoPlayerDialog", "Disposing orphaned Video.js player on close:", playerId)
+            player.dispose()
+          }
+        })
+      } catch (e) {
+        console.error("DEBUG::VideoPlayerDialog", "Error checking for orphaned players on close:", e)
+      }
+
       // Reset state
       setVideoUrl(null)
       setError(null)
@@ -145,11 +160,8 @@ export function VideoPlayerDialog({ clip, open, onOpenChange }: VideoPlayerDialo
       return
     }
 
-    // Don't reinitialize if player already exists
-    if (playerRef.current) {
-      console.log("DEBUG::VideoPlayerDialog", "Player already initialized, skipping")
-      return
-    }
+    // Always reinitialize when dialog opens with a video URL
+    // We dispose the player on close, so no need to check for existing player
 
     const initializePlayer = () => {
       if (!containerRef.current) {
@@ -157,12 +169,41 @@ export function VideoPlayerDialog({ clip, open, onOpenChange }: VideoPlayerDialo
         return
       }
 
-      // Clear container
-      console.log("DEBUG::VideoPlayerDialog", "Clearing container and creating new video element")
-      containerRef.current.innerHTML = ''
+      // Dispose any existing player to prevent memory leaks
+      if (playerRef.current) {
+        try {
+          console.log("DEBUG::VideoPlayerDialog", "Disposing existing player before reinitialization")
+          playerRef.current.dispose()
+        } catch (e) {
+          console.error("DEBUG::VideoPlayerDialog", "Error disposing existing player:", e)
+        }
+        playerRef.current = null
+      }
 
-      // Create video element
+      // Also dispose any Video.js players that might be associated with this container
+      try {
+        const players = videojs.getPlayers()
+        Object.keys(players).forEach(playerId => {
+          const player = players[playerId]
+          if (player && player.el() && containerRef.current && containerRef.current.contains(player.el())) {
+            console.log("DEBUG::VideoPlayerDialog", "Disposing orphaned Video.js player:", playerId)
+            player.dispose()
+          }
+        })
+      } catch (e) {
+        console.error("DEBUG::VideoPlayerDialog", "Error checking for orphaned players:", e)
+      }
+
+      // Clear container completely
+      console.log("DEBUG::VideoPlayerDialog", "Clearing container and creating new video element")
+      while (containerRef.current.firstChild) {
+        containerRef.current.removeChild(containerRef.current.firstChild)
+      }
+
+      // Create video element with unique ID to prevent Video.js conflicts
+      const uniqueId = `video-player-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       const videoElement = document.createElement('video')
+      videoElement.id = uniqueId
       videoElement.className = 'video-js vjs-big-play-centered vjs-16-9'
       videoElement.setAttribute('playsinline', '')
       
@@ -202,12 +243,8 @@ export function VideoPlayerDialog({ clip, open, onOpenChange }: VideoPlayerDialo
       }
     }
 
-    // Delay to ensure DOM is ready
-    const timer = setTimeout(initializePlayer, 100)
-
-    return () => {
-      clearTimeout(timer)
-    }
+    // Initialize immediately - DOM should be ready since we're in a useEffect
+    initializePlayer()
   }, [videoUrl, open])
 
   function formatDuration(seconds: number): string {

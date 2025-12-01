@@ -112,19 +112,23 @@ export default function DevicePage() {
           filter: `serial=eq.${device.serial}`
         },
         (payload) => {
-          console.log("DEBUG::DevicePage", "Real-time clip update:", payload)
-          
-          if (payload.eventType === 'INSERT') {
-            // New clip added
-            setClips(prev => [payload.new as Clip, ...prev])
-          } else if (payload.eventType === 'UPDATE') {
-            // Clip updated (progress, status, etc.)
-            setClips(prev => prev.map(clip => 
-              clip.id === payload.new.id ? payload.new as Clip : clip
-            ))
-          } else if (payload.eventType === 'DELETE') {
-            // Clip deleted
-            setClips(prev => prev.filter(clip => clip.id !== payload.old.id))
+          try {
+            console.log("DEBUG::DevicePage", "Real-time clip update:", payload)
+
+            if (payload.eventType === 'INSERT') {
+              // New clip added
+              setClips(prev => [payload.new as Clip, ...prev])
+            } else if (payload.eventType === 'UPDATE') {
+              // Clip updated (progress, status, etc.)
+              setClips(prev => prev.map(clip =>
+                clip.id === payload.new.id ? payload.new as Clip : clip
+              ))
+            } else if (payload.eventType === 'DELETE') {
+              // Clip deleted
+              setClips(prev => prev.filter(clip => clip.id !== payload.old.id))
+            }
+          } catch (error) {
+            console.error("DEBUG::DevicePage", "Error handling real-time clip update:", error, payload)
           }
         }
       )
@@ -167,8 +171,9 @@ export default function DevicePage() {
       setDevice(data)
       
       // Fetch clips after we have the device serial
-      if (data.serial) {
-        fetchClips(data.serial)
+      const deviceData = data as Device
+      if (deviceData.serial) {
+        fetchClips(deviceData.serial)
       } else {
         setClipsLoading(false)
       }
@@ -502,10 +507,8 @@ export default function DevicePage() {
                 <RequestClipDialog 
                   serial={device.serial} 
                   onClipRequested={() => {
-                    console.log("DEBUG::DevicePage", "Clip requested, refreshing list in 2 seconds...")
-                    setTimeout(() => {
-                      if (device.serial) fetchClips(device.serial)
-                    }, 2000)
+                    console.log("DEBUG::DevicePage", "Clip requested, will rely on real-time updates for progress")
+                    // Removed manual fetchClips call - real-time subscription will handle updates
                   }}
                 />
               )}
@@ -706,7 +709,12 @@ export default function DevicePage() {
       <VideoPlayerDialog
         clip={clipToPlay}
         open={playerOpen}
-        onOpenChange={setPlayerOpen}
+        onOpenChange={(open) => {
+          setPlayerOpen(open)
+          if (!open) {
+            setClipToPlay(null)
+          }
+        }}
       />
     </div>
   )
