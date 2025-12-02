@@ -457,19 +457,19 @@ export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialog
                     <div className="flex-1 text-center text-sm font-mono bg-gray-50 p-2 rounded border">
                       {endTime ? formatDateTime(endTime) : '-'}
                     </div>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => adjustTime('end', 5)}
-                      disabled={endTime === selectedRegion.end_utc || (startTime && endTime! - startTime >= 300)}
+                      disabled={endTime === selectedRegion.end_utc || Boolean(startTime && endTime! - startTime >= 300)}
                     >
                       +5s
                     </Button>
-                    <Button 
-                      variant="outline" 
+                    <Button
+                      variant="outline"
                       size="sm"
                       onClick={() => adjustTime('end', 30)}
-                      disabled={endTime === selectedRegion.end_utc || (startTime && endTime! - startTime >= 300)}
+                      disabled={endTime === selectedRegion.end_utc || Boolean(startTime && endTime! - startTime >= 300)}
                     >
                       +30s
                     </Button>
