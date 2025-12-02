@@ -199,7 +199,8 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
       
       // Construct HLS URL directly to streaming server
       // HLS must be loaded directly from the streaming server, not through API proxy
-      const hlsUrl = `${STREAMING_SERVER_URL}${data.stream_url || `/hls/${serial}/${camera}/${profile}/stream.m3u8`}`
+      const hlsUrl = `${STREAMING_SERVER_URL}/cathexis.cwe.cloud/hls/${serial}/${camera}/${profile}/stream.m3u8`
+      console.log("DEBUG::LiveStreamDialog", "HLS URL:", hlsUrl)
       setStreamUrl(hlsUrl)
       
       // Start polling for stream readiness
