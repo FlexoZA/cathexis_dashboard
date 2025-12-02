@@ -15,6 +15,7 @@ import {
 import { supabase } from "@/lib/supabase"
 import { Device as DBDevice } from "@/lib/types/database"
 import { AddDeviceDialog } from "./add-device-dialog"
+import { LiveStreamDialog } from "./live-stream-dialog"
 
 interface Device {
   id: number
@@ -250,10 +251,10 @@ export function DeviceList() {
                     View
                   </Link>
                 </Button>
-                <Button variant="outline" className="flex-1">
-                  <Play className="w-4 h-4" />
-                  Stream
-                </Button>
+                <LiveStreamDialog 
+                  serial={device.device_serial}
+                  deviceName={device.device_friendly_name}
+                />
               </div>
             </div>
           </div>
