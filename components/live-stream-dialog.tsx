@@ -73,7 +73,7 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
         pollingIntervalRef.current = null
       }
 
-      // Dispose player safely
+      // Dispose player safely - Video.js dispose() handles DOM cleanup
       if (playerRef.current) {
         try {
           console.log("DEBUG::LiveStreamDialog", "Disposing Video.js player on dialog close")
@@ -82,17 +82,6 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
           console.error("DEBUG::LiveStreamDialog", "Error disposing player on dialog close:", e)
         } finally {
           playerRef.current = null
-        }
-      }
-
-      // Clear container safely
-      if (containerRef.current) {
-        try {
-          while (containerRef.current.firstChild) {
-            containerRef.current.removeChild(containerRef.current.firstChild)
-          }
-        } catch (e) {
-          console.error("DEBUG::LiveStreamDialog", "Error clearing container on dialog close:", e)
         }
       }
 
@@ -166,7 +155,7 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
         return
       }
 
-      // Dispose existing player safely
+      // Dispose existing player safely - Video.js dispose() handles DOM cleanup
       if (playerRef.current) {
         try {
           console.log("DEBUG::LiveStreamDialog", "Disposing existing player")
@@ -176,15 +165,6 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
         } finally {
           playerRef.current = null
         }
-      }
-
-      // Clear container safely
-      try {
-        while (containerRef.current.firstChild) {
-          containerRef.current.removeChild(containerRef.current.firstChild)
-        }
-      } catch (e) {
-        console.error("DEBUG::LiveStreamDialog", "Error clearing container:", e)
       }
 
       // Create video element
@@ -304,7 +284,7 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
         pollingIntervalRef.current = null
       }
 
-      // Dispose player safely
+      // Dispose player safely - Video.js dispose() handles DOM cleanup
       if (playerRef.current) {
         try {
           console.log("DEBUG::LiveStreamDialog", "Disposing Video.js player")
@@ -313,17 +293,6 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
           console.error("DEBUG::LiveStreamDialog", "Error disposing Video.js player:", e)
         } finally {
           playerRef.current = null
-        }
-      }
-
-      // Clear container safely
-      if (containerRef.current) {
-        try {
-          while (containerRef.current.firstChild) {
-            containerRef.current.removeChild(containerRef.current.firstChild)
-          }
-        } catch (e) {
-          console.error("DEBUG::LiveStreamDialog", "Error clearing container:", e)
         }
       }
 
