@@ -55,6 +55,12 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
   const playerRef = useRef<Player | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Use refs to track values for cleanup without triggering re-renders
+  const statusRef = useRef<StreamStatus>('stopped')
+  const serialRef = useRef(serial)
+  const cameraRef = useRef(camera)
+  const profileRef = useRef(profile)
 
   // Cleanup on dialog close
   useEffect(() => {
@@ -97,7 +103,18 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
     }
   }, [open])
 
-  // Auto-stop stream when dialog closes (cleanup)
+  // Keep refs in sync with state
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  useEffect(() => {
+    serialRef.current = serial
+    cameraRef.current = camera
+    profileRef.current = profile
+  }, [serial, camera, profile])
+
+  // Auto-stop stream when component unmounts (cleanup only on unmount)
   useEffect(() => {
     return () => {
       console.log("DEBUG::LiveStreamDialog", "Component unmounting, cleaning up...")
@@ -120,22 +137,22 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
         }
       }
 
-      // Stop stream if active
-      if (status === 'active' || status === 'starting') {
+      // Stop stream if active (use refs to get current values)
+      if (statusRef.current === 'active' || statusRef.current === 'starting') {
         console.log("DEBUG::LiveStreamDialog", "Stopping active stream on unmount")
         fetch('/api/stream/stop', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            serial,
-            camera,
-            profile
+            serial: serialRef.current,
+            camera: cameraRef.current,
+            profile: profileRef.current
           }),
           keepalive: true
         }).catch(console.error)
       }
     }
-  }, [status, serial, camera, profile])
+  }, []) // Empty dependency array - only run cleanup on unmount
 
   // Initialize Video.js player when stream URL is available
   useEffect(() => {
