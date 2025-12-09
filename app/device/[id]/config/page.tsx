@@ -8,6 +8,17 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { supabase } from "@/lib/supabase"
+import { DeviceBreadcrumb } from "@/components/device-breadcrumb"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 
 interface Device {
   id: number
@@ -48,6 +59,8 @@ export default function DeviceConfigPage() {
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
   const [showApnPassword, setShowApnPassword] = useState(false)
   const [visibleWifiPasswords, setVisibleWifiPasswords] = useState<Record<number, boolean>>({})
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [pendingUpdates, setPendingUpdates] = useState<Record<string, any>>({})
 
   useEffect(() => {
     fetchDevice()
@@ -143,18 +156,23 @@ export default function DeviceConfigPage() {
 
   const hasChanges = changedSections.length > 0
 
-  async function handleSave() {
-    if (!device?.serial || !config || !initialConfig) return
+  function buildUpdates(): Record<string, any> {
     const updates: Record<string, any> = {}
-
     sectionOrder.forEach((key) => {
-      if (!deepEqual(config[key], initialConfig[key])) {
-        updates[key] = config[key]
+      if (!deepEqual(config?.[key], initialConfig?.[key])) {
+        updates[key] = config?.[key]
       }
     })
+    return updates
+  }
+
+  async function handleSave(updatesOverride?: Record<string, any>) {
+    if (!device?.serial || !config || !initialConfig) return
+    const updates = updatesOverride || buildUpdates()
 
     if (Object.keys(updates).length === 0) {
       setSaveMessage('No changes to save')
+      setConfirmOpen(false)
       return
     }
 
@@ -180,12 +198,23 @@ export default function DeviceConfigPage() {
 
       setInitialConfig(config)
       setSaveMessage('Changes saved to device')
+      setConfirmOpen(false)
     } catch (err: any) {
       console.log("DEBUG::DeviceConfigPage", { action: "saveConfigError", error: err })
       setError(err.message || 'Failed to save changes')
     } finally {
       setSaving(false)
     }
+  }
+
+  function openSaveConfirm() {
+    const updates = buildUpdates()
+    if (Object.keys(updates).length === 0) {
+      setSaveMessage('No changes to save')
+      return
+    }
+    setPendingUpdates(updates)
+    setConfirmOpen(true)
   }
 
   function resetChanges() {
@@ -375,7 +404,7 @@ export default function DeviceConfigPage() {
   if (loadingDevice || loadingConfig) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="w-full max-w-6xl mx-auto px-4 py-12 flex items-center justify-center text-gray-700 gap-3">
+        <div className="w-full max-w-7xl mx-auto px-4 py-12 flex items-center justify-center text-gray-700 gap-3">
           <Loader2 className="w-5 h-5 animate-spin" />
           <span>Loading device configuration...</span>
         </div>
@@ -386,7 +415,7 @@ export default function DeviceConfigPage() {
   if (error || !device || !config) {
     return (
       <div className="min-h-screen bg-gray-50">
-        <div className="w-full max-w-6xl mx-auto px-4 py-12">
+        <div className="w-full max-w-7xl mx-auto px-4 py-12">
           <div className="bg-white border border-gray-200 rounded-lg p-6">
             <p className="text-destructive mb-4">{error || 'Unable to load device configuration'}</p>
             <Button onClick={() => router.push(`/device/${deviceId}`)}>
@@ -402,30 +431,30 @@ export default function DeviceConfigPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200">
-        <div className="w-full max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => router.push(`/device/${device.id}`)}>
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back
-            </Button>
+        <div className="w-full max-w-7xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <Settings className="w-5 h-5 text-gray-700" />
             <div>
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-gray-700" />
-                <h1 className="text-xl font-semibold text-gray-900">
-                  Device Configuration
-                </h1>
-              </div>
-              <p className="text-sm text-gray-600">
+              <h1 className="text-xl font-semibold text-gray-900">
+                Device Configuration
+              </h1>
+              <p className="text-sm text-gray-600 truncate">
                 {device.friendly_name || 'Unnamed Device'} • {device.serial || 'No serial'}
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={resetChanges} disabled={!hasChanges || saving}>
+          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetChanges}
+              disabled={!hasChanges || saving}
+              className="w-full sm:w-auto"
+            >
               <RefreshCw className="w-4 h-4 mr-2" />
               Reset
             </Button>
-            <Button onClick={handleSave} disabled={!hasChanges || saving}>
+            <Button onClick={openSaveConfirm} disabled={!hasChanges || saving} className="w-full sm:w-auto">
               {saving ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -441,8 +470,19 @@ export default function DeviceConfigPage() {
           </div>
         </div>
       </div>
+      <div className="bg-white border-b border-gray-200">
+        <div className="w-full max-w-7xl mx-auto px-4 py-3">
+          <DeviceBreadcrumb
+            items={[
+              { label: "Devices", href: "/" },
+              { label: device.friendly_name || "Device", href: `/device/${device.id}` },
+              { label: "Configuration" },
+            ]}
+          />
+        </div>
+      </div>
 
-      <div className="w-full max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <div className="w-full max-w-7xl mx-auto px-4 py-6 space-y-6">
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-sm text-gray-700">
@@ -840,6 +880,45 @@ export default function DeviceConfigPage() {
           </p>
         </section>
       </div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apply configuration and reboot?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The device will reboot immediately after saving. Review the sections below before proceeding.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="mt-3 space-y-2">
+            {Object.keys(pendingUpdates || {}).length === 0 ? (
+              <p className="text-sm text-gray-600">No changes detected.</p>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-gray-900">Sections to update:</p>
+                <ul className="list-disc list-inside text-sm text-gray-700 space-y-0.5">
+                  {Object.entries(pendingUpdates).map(([section, value]) => (
+                    <li key={section}>
+                      {section.replace(/_/g, ' ')} ({typeof value === 'object' ? Object.keys(value || {}).length : 1} fields)
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleSave(pendingUpdates)
+              }}
+              disabled={saving}
+            >
+              {saving ? 'Saving...' : 'Save and reboot'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

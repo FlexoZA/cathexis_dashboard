@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
 import { RequestClipDialog } from "@/components/request-clip-dialog"
 import { VideoPlayerDialog } from "@/components/video-player-dialog"
+import { DeviceBreadcrumb } from "@/components/device-breadcrumb"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -385,27 +386,18 @@ export default function DevicePage() {
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200">
-        <div className="w-full max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => router.push('/')}
-              >
-                <ArrowLeft className="w-4 h-4 mr-2" />
-                Back
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">
-                  {device.friendly_name || 'Unnamed Device'}
-                </h1>
-                <p className="text-sm text-gray-600">
-                  Device #{device.id}
-                </p>
-              </div>
+        <div className="w-full max-w-7xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                {device.friendly_name || 'Unnamed Device'}
+              </h1>
+              <p className="text-sm text-gray-600">
+                Device #{device.id}
+              </p>
             </div>
-            <div className="flex items-center space-x-2">
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
             <Button
               variant="outline"
               size="sm"
@@ -416,15 +408,24 @@ export default function DevicePage() {
                 Device Config
               </Link>
             </Button>
-              <span
-                className={`text-sm font-medium px-3 py-1 rounded-full border ${
-                  statusConfig[device.status || 'offline'].color
-                }`}
-              >
-                {statusConfig[device.status || 'offline'].label}
-              </span>
-            </div>
+            <span
+              className={`text-sm font-medium px-3 py-1 rounded-full border ${
+                statusConfig[device.status || 'offline'].color
+              }`}
+            >
+              {statusConfig[device.status || 'offline'].label}
+            </span>
           </div>
+        </div>
+      </div>
+      <div className="bg-white border-b border-gray-200">
+        <div className="w-full max-w-7xl mx-auto px-4 py-3">
+          <DeviceBreadcrumb
+            items={[
+              { label: "Devices", href: "/" },
+              { label: device.friendly_name || "Device" },
+            ]}
+          />
         </div>
       </div>
 
