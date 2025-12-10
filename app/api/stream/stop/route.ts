@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const API_KEY = process.env.CWE_MVR_API_KEY
+const BACKEND_BASE_URL = process.env.CWE_MVR_API_URL
 
 export async function POST(request: NextRequest) {
   try {
-    if (!API_KEY) {
-      console.log("DEBUG::StreamStopAPI", "Error:", "Missing API key")
+    if (!API_KEY || !BACKEND_BASE_URL) {
+      console.log("DEBUG::StreamStopAPI", "Error:", "Missing API config", { hasApiKey: Boolean(API_KEY), hasBackendUrl: Boolean(BACKEND_BASE_URL) })
       return NextResponse.json(
-        { ok: false, error: 'API key not configured' },
+        { ok: false, error: 'API configuration not configured' },
         { status: 500 }
       )
     }
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     console.log("DEBUG::StreamStopAPI", "Stopping stream:", { serial, camera, profile })
 
     // Call the backend server directly for stop command
-    const backendUrl = `http://185.202.223.35:9000/api/units/${serial}/stream/stop`
+    const backendUrl = `${BACKEND_BASE_URL}/api/units/${encodeURIComponent(serial)}/stream/stop`
     console.log("DEBUG::StreamStopAPI", "Backend URL:", backendUrl)
 
     const response = await fetch(backendUrl, {

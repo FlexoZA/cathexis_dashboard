@@ -29,6 +29,7 @@ interface RingSummaryResponse {
   ok: boolean
   serial: string
   command_type: string
+  error?: string
   data: {
     camera: number
     dto: number
@@ -90,18 +91,15 @@ export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialog
       setError(null)
       console.log("DEBUG::RequestClipDialog", "Fetching ring summary for:", { serial, camera, profile })
 
-      const response = await fetch('https://labsn8n.cwe.cloud/webhook/d55070bc-4e16-4edb-84b8-858b4aedaa02', {
+      const response = await fetch('/api/ring-summary', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           serial,
-          type: 'request_ring_summary',
-          payload: {
-            camera,
-            profile
-          }
+          camera,
+          profile
         })
       })
 
@@ -113,7 +111,7 @@ export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialog
       console.log("DEBUG::RequestClipDialog", "Ring summary response:", data)
 
       if (!data.ok) {
-        throw new Error('Device returned an error')
+        throw new Error(data.error || 'Device returned an error')
       }
 
       // Find the profile data
@@ -164,19 +162,17 @@ export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialog
         duration 
       })
 
-      const response = await fetch('https://labsn8n.cwe.cloud/webhook/ff9913b0-f783-4b7d-8472-1b762b0a2592', {
+      const response = await fetch('/api/clips/request', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           serial,
-          payload: {
-            camera,
-            profile,
-            start_utc: startTime,
-            end_utc: endTime
-          }
+          camera,
+          profile,
+          start_utc: startTime,
+          end_utc: endTime
         })
       })
 
@@ -186,6 +182,10 @@ export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialog
 
       const data = await response.json()
       console.log("DEBUG::RequestClipDialog", "Clip request response:", data)
+
+      if (!data.ok) {
+        throw new Error(data.error || 'Device returned an error')
+      }
 
       // Show success message
       setSuccess(true)

@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const API_KEY = process.env.CWE_MVR_API_KEY
-
-const N8N_WEBHOOK_URL = 'https://labsn8n.cwe.cloud/webhook/6afb8ad0-8e68-488a-b129-f3d80415ec5c'
+const BACKEND_BASE_URL = process.env.CWE_MVR_API_URL
 
 export async function POST(request: NextRequest) {
   try {
-    if (!API_KEY) {
-      console.log("DEBUG::StreamStatusAPI", "Error:", "Missing API key")
+    if (!API_KEY || !BACKEND_BASE_URL) {
+      console.log("DEBUG::StreamStatusAPI", "Error:", "Missing API config", { hasApiKey: Boolean(API_KEY), hasBackendUrl: Boolean(BACKEND_BASE_URL) })
       return NextResponse.json(
-        { ok: false, error: 'API key not configured' },
+        { ok: false, error: 'API configuration not configured' },
         { status: 500 }
       )
     }
@@ -20,7 +19,7 @@ export async function POST(request: NextRequest) {
     console.log("DEBUG::StreamStatusAPI", "Checking stream status:", { serial, camera, profile })
 
     // Call the backend server directly for status (GET request with query params)
-    const backendUrl = `http://185.202.223.35:9000/api/units/${serial}/stream/status?camera=${camera}&profile=${profile}`
+    const backendUrl = `${BACKEND_BASE_URL}/api/units/${encodeURIComponent(serial)}/stream/status?camera=${camera}&profile=${profile}`
     console.log("DEBUG::StreamStatusAPI", "Backend URL:", backendUrl)
     console.log("DEBUG::StreamStatusAPI", "Backend URL:", backendUrl)
 

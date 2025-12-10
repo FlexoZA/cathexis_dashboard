@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const BACKEND_BASE_URL = 'http://185.202.223.35:9000'
+const BACKEND_BASE_URL = process.env.CWE_MVR_API_URL
 const API_KEY = process.env.CWE_MVR_API_KEY
 
 function buildCommandUrl(serial: string) {
@@ -9,10 +9,10 @@ function buildCommandUrl(serial: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    if (!API_KEY) {
-      console.log("DEBUG::DeviceConfigAPI", { action: 'request_config_error', error: 'Missing API key' })
+    if (!API_KEY || !BACKEND_BASE_URL) {
+      console.log("DEBUG::DeviceConfigAPI", { action: 'request_config_error', error: 'Missing API config', hasApiKey: Boolean(API_KEY), hasBackendUrl: Boolean(BACKEND_BASE_URL) })
       return NextResponse.json(
-        { ok: false, error: 'API key not configured' },
+        { ok: false, error: 'API configuration not configured' },
         { status: 500 }
       )
     }
@@ -54,10 +54,10 @@ export async function GET(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
-    if (!API_KEY) {
-      console.log("DEBUG::DeviceConfigAPI", { action: 'update_config_error', error: 'Missing API key' })
+    if (!API_KEY || !BACKEND_BASE_URL) {
+      console.log("DEBUG::DeviceConfigAPI", { action: 'update_config_error', error: 'Missing API config', hasApiKey: Boolean(API_KEY), hasBackendUrl: Boolean(BACKEND_BASE_URL) })
       return NextResponse.json(
-        { ok: false, error: 'API key not configured' },
+        { ok: false, error: 'API configuration not configured' },
         { status: 500 }
       )
     }
