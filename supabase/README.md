@@ -6,7 +6,7 @@ This directory contains SQL migration files for the Cathexis Dashboard database 
 
 ### Tables
 
-#### `groups`
+#### `mvr_device_groups`
 Stores device groups for organizing devices.
 
 | Column | Type | Description |
@@ -16,7 +16,7 @@ Stores device groups for organizing devices.
 | name | text | Group name (required) |
 | description | text | Group description (optional) |
 
-#### `device`
+#### `mvr_devices`
 Stores dashcam device information.
 
 | Column | Type | Description |
@@ -27,7 +27,7 @@ Stores dashcam device information.
 | client_id | bigint | Client identifier |
 | friendly_name | text | Human-readable device name |
 | status | text | Device status (online, offline, warning, maintenance) |
-| group_id | bigint | Foreign key to groups table |
+| group_id | bigint | Foreign key to mvr_device_groups table |
 
 ### Row Level Security (RLS)
 
@@ -42,9 +42,9 @@ Both tables have RLS enabled with the following policies:
 ### Indexes
 
 For performance optimization:
-- `device_group_id_idx` - Index on group_id for faster joins
-- `device_status_idx` - Index on status for faster filtering
-- `device_serial_idx` - Index on serial for faster lookups
+- `mvr_devices_group_id_idx` - Index on group_id for faster joins
+- `mvr_devices_status_idx` - Index on status for faster filtering
+- `mvr_devices_serial_idx` - Index on serial for faster lookups
 
 ## Running Migrations
 
@@ -86,13 +86,13 @@ After running the migration, you can verify the tables were created:
 SELECT table_name 
 FROM information_schema.tables 
 WHERE table_schema = 'public' 
-AND table_name IN ('device', 'groups');
+AND table_name IN ('mvr_devices', 'mvr_device_groups');
 
 -- Check RLS is enabled
 SELECT tablename, rowsecurity 
 FROM pg_tables 
 WHERE schemaname = 'public' 
-AND tablename IN ('device', 'groups');
+AND tablename IN ('mvr_devices', 'mvr_device_groups');
 ```
 
 ## Example Data
@@ -101,11 +101,11 @@ To test the schema, you can insert sample data:
 
 ```sql
 -- Insert a group
-INSERT INTO public.groups (name, description)
+INSERT INTO public.mvr_device_groups (name, description)
 VALUES ('Main Building', 'Cameras in the main building');
 
 -- Insert devices
-INSERT INTO public.device (serial, friendly_name, status, group_id)
+INSERT INTO public.mvr_devices (serial, friendly_name, status, group_id)
 VALUES 
   ('CAM-2024-001', 'Main Entrance Camera', 'online', 1),
   ('CAM-2024-002', 'Parking Lot Camera', 'online', 1),

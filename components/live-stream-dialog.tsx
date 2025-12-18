@@ -40,7 +40,9 @@ const profileOptions = [
   { value: 1, label: 'Low Resolution (360p)' }
 ]
 
-const STREAMING_SERVER_URL = 'http://185.202.223.35:9000'
+const STREAMING_SERVER_URL =
+  (process.env.NEXT_PUBLIC_CWE_MVR_API_URL?.replace(/\/$/, '') ||
+    'http://109.199.118.33:9000')
 
 export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) {
   const [open, setOpen] = useState(false)

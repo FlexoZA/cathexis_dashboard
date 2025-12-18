@@ -57,10 +57,10 @@ export function DeviceList() {
       console.log("DEBUG::DeviceList", "Starting to fetch devices...")
       
       const { data, error } = await supabase
-        .from('device')
+        .from('mvr_devices')
         .select(`
           *,
-          groups (
+          mvr_device_groups (
             name
           )
         `)
@@ -80,7 +80,7 @@ export function DeviceList() {
         device_friendly_name: device.friendly_name || 'Unknown Device',
         device_serial: device.serial || 'N/A',
         status: (device.status as Device['status']) || 'offline',
-        group_name: device.groups?.name || null,
+        group_name: device.mvr_device_groups?.name || null,
       }))
 
       console.log("DEBUG::DeviceList", "Mapped devices:", mappedDevices)
@@ -98,7 +98,7 @@ export function DeviceList() {
       console.log("DEBUG::DeviceList", "Starting to fetch groups...")
       
       const { data, error } = await supabase
-        .from('groups')
+        .from('mvr_device_groups')
         .select('id, name')
         .order('name', { ascending: true })
 

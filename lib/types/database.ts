@@ -3,7 +3,7 @@
 export interface Database {
   public: {
     Tables: {
-      device: {
+      mvr_devices: {
         Row: {
           id: number
           created_at: string
@@ -35,7 +35,7 @@ export interface Database {
           group_id?: number | null
         }
       }
-      groups: {
+      mvr_device_groups: {
         Row: {
           id: number
           created_at: string
@@ -63,11 +63,11 @@ export interface Database {
 export type DeviceStatus = 'online' | 'offline' | 'warning' | 'maintenance'
 
 // Convenience types
-export type Device = Database['public']['Tables']['device']['Row']
-export type DeviceInsert = Database['public']['Tables']['device']['Insert']
-export type DeviceUpdate = Database['public']['Tables']['device']['Update']
+export type Device = Database['public']['Tables']['mvr_devices']['Row']
+export type DeviceInsert = Database['public']['Tables']['mvr_devices']['Insert']
+export type DeviceUpdate = Database['public']['Tables']['mvr_devices']['Update']
 
-export type Group = Database['public']['Tables']['groups']['Row']
-export type GroupInsert = Database['public']['Tables']['groups']['Insert']
-export type GroupUpdate = Database['public']['Tables']['groups']['Update']
+export type Group = Database['public']['Tables']['mvr_device_groups']['Row']
+export type GroupInsert = Database['public']['Tables']['mvr_device_groups']['Insert']
+export type GroupUpdate = Database['public']['Tables']['mvr_device_groups']['Update']
 

@@ -73,7 +73,7 @@ export function AddDeviceDialog({ groups, onDeviceAdded }: AddDeviceDialogProps)
       }
 
       const { data, error } = await supabase
-        .from('device')
+        .from('mvr_devices')
         .insert(deviceData as any)
         .select()
 

@@ -68,7 +68,11 @@ export function VideoPlayerDialog({ clip, open, onOpenChange }: VideoPlayerDialo
       try {
         setLoading(true)
         setError(null)
-        console.log("DEBUG::VideoPlayerDialog", "Getting video URL for clip:", clip.id)
+        console.log("DEBUG::VideoPlayerDialog", "========== STARTING VIDEO URL FETCH ==========")
+        console.log("DEBUG::VideoPlayerDialog", "Clip ID:", clip.id)
+        console.log("DEBUG::VideoPlayerDialog", "Storage path from DB:", clip.storage_path)
+        console.log("DEBUG::VideoPlayerDialog", "Existing signed_url:", clip.signed_url)
+        console.log("DEBUG::VideoPlayerDialog", "Signed URL expires at:", clip.signed_url_expires_at)
 
         // Check if we have a valid signed URL that hasn't expired
         if (clip.signed_url && clip.signed_url_expires_at) {
@@ -77,29 +81,52 @@ export function VideoPlayerDialog({ clip, open, onOpenChange }: VideoPlayerDialo
           
           // Add 5 minute buffer before expiration
           if (expiresAt.getTime() - now.getTime() > 5 * 60 * 1000) {
-            console.log("DEBUG::VideoPlayerDialog", "Using existing signed URL")
+            console.log("DEBUG::VideoPlayerDialog", "Using existing signed URL (not expired)")
+            console.log("DEBUG::VideoPlayerDialog", "URL:", clip.signed_url)
             setVideoUrl(clip.signed_url)
             return
+          } else {
+            console.log("DEBUG::VideoPlayerDialog", "Existing signed URL has expired, generating new one")
           }
         }
 
         // Generate new signed URL
-        console.log("DEBUG::VideoPlayerDialog", "Generating new signed URL for:", clip.storage_path)
-        const { data, error } = await supabase.storage
-          .from('clips')
-          .createSignedUrl(clip.storage_path, 3600) // 1 hour expiry
+        // Try multiple bucket names in case of configuration mismatch
+        const bucketNames = ['mvr5-clips', 'mvr_clips', 'clips']
+        let signedUrlData = null
+        let lastError = null
+        
+        for (const bucketName of bucketNames) {
+          console.log("DEBUG::VideoPlayerDialog", `Trying bucket: ${bucketName}`)
+          console.log("DEBUG::VideoPlayerDialog", `For path: ${clip.storage_path}`)
+          
+          const { data, error } = await supabase.storage
+            .from(bucketName)
+            .createSignedUrl(clip.storage_path, 3600) // 1 hour expiry
 
-        if (error) {
-          console.log("DEBUG::VideoPlayerDialog", "Error generating signed URL:", error)
-          throw error
+          if (error) {
+            console.warn("DEBUG::VideoPlayerDialog", `⚠️ Failed with bucket '${bucketName}':`, error.message)
+            lastError = error
+            continue
+          }
+
+          if (data?.signedUrl) {
+            console.log("DEBUG::VideoPlayerDialog", `✅ Success with bucket: ${bucketName}`)
+            signedUrlData = data
+            break
+          }
         }
 
-        if (!data?.signedUrl) {
-          throw new Error('Failed to generate signed URL')
+        if (!signedUrlData) {
+          console.error("DEBUG::VideoPlayerDialog", "❌ Failed with all bucket names")
+          console.error("DEBUG::VideoPlayerDialog", "Last error:", lastError)
+          throw lastError || new Error('Failed to generate signed URL from any bucket')
         }
 
-        console.log("DEBUG::VideoPlayerDialog", "Generated new signed URL")
-        setVideoUrl(data.signedUrl)
+        console.log("DEBUG::VideoPlayerDialog", "✅ Successfully generated signed URL")
+        console.log("DEBUG::VideoPlayerDialog", "Final URL:", signedUrlData.signedUrl)
+        console.log("DEBUG::VideoPlayerDialog", "========== VIDEO URL FETCH COMPLETE ==========")
+        setVideoUrl(signedUrlData.signedUrl)
       } catch (err: any) {
         console.log("DEBUG::VideoPlayerDialog", "Error getting video URL:", err)
         setError(err.message || 'Failed to load video')

@@ -29,7 +29,7 @@ interface Device {
   created_at: string
   client_id: number | null
   group_id: number | null
-  groups?: {
+  mvr_device_groups?: {
     name: string
   } | null
 }
@@ -110,7 +110,7 @@ export default function DevicePage() {
         {
           event: '*',
           schema: 'public',
-          table: 'clips',
+          table: 'mvr_clips',
           filter: `serial=eq.${device.serial}`
         },
         (payload) => {
@@ -148,10 +148,10 @@ export default function DevicePage() {
       console.log("DEBUG::DevicePage", "Fetching device:", deviceId)
 
       const { data, error } = await supabase
-        .from('device')
+        .from('mvr_devices')
         .select(`
           *,
-          groups (
+          mvr_device_groups (
             name
           )
         `)
@@ -194,7 +194,7 @@ export default function DevicePage() {
       console.log("DEBUG::DevicePage", "Fetching clips for serial:", serial)
 
       const { data, error } = await supabase
-        .from('clips')
+        .from('mvr_clips')
         .select('*')
         .eq('serial', serial)
         .order('created_at', { ascending: false })
@@ -233,7 +233,7 @@ export default function DevicePage() {
       if (!downloadUrl) {
         console.log("DEBUG::DevicePage", "Generating new signed URL for:", clip.storage_path)
         const { data, error } = await supabase.storage
-          .from('clips')
+          .from('mvr5-clips')
           .createSignedUrl(clip.storage_path, 3600) // 1 hour expiry
 
         if (error) {
@@ -294,7 +294,7 @@ export default function DevicePage() {
       // First, delete from storage
       console.log("DEBUG::DevicePage", "Deleting from storage:", clipToDelete.storage_path)
       const { error: storageError } = await supabase.storage
-        .from('clips')
+        .from('mvr5-clips')
         .remove([clipToDelete.storage_path])
 
       if (storageError) {
@@ -305,7 +305,7 @@ export default function DevicePage() {
       // Then, delete from database
       console.log("DEBUG::DevicePage", "Deleting from database")
       const { error: dbError } = await supabase
-        .from('clips')
+        .from('mvr_clips')
         .delete()
         .eq('id', clipToDelete.id)
 
@@ -460,7 +460,7 @@ export default function DevicePage() {
               <div>
                 <label className="text-sm font-medium text-gray-700">Group</label>
                 <p className="text-sm text-gray-900 mt-1">
-                  {device.groups?.name || 'No group assigned'}
+                  {device.mvr_device_groups?.name || 'No group assigned'}
                 </p>
               </div>
               <div>

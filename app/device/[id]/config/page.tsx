@@ -72,7 +72,7 @@ export default function DeviceConfigPage() {
       console.log("DEBUG::DeviceConfigPage", { action: "fetchDevice", deviceId })
 
       const { data, error: dbError } = await supabase
-        .from('device')
+        .from('mvr_devices')
         .select('id, friendly_name, serial')
         .eq('id', parseInt(deviceId))
         .single()
