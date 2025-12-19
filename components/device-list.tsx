@@ -75,13 +75,39 @@ export function DeviceList() {
 
       console.log("DEBUG::DeviceList", `Received ${data?.length || 0} devices from database`)
 
-      const mappedDevices: Device[] = (data || []).map((device: any) => ({
-        id: device.id,
-        device_friendly_name: device.friendly_name || 'Unknown Device',
-        device_serial: device.serial || 'N/A',
-        status: (device.status as Device['status']) || 'offline',
-        group_name: device.mvr_device_groups?.name || null,
-      }))
+      let onlineUnits: string[] = []
+
+      try {
+        const gatewayResponse = await fetch("/api/units", {
+          cache: "no-store",
+        })
+
+        if (!gatewayResponse.ok) {
+          throw new Error(`Gateway returned ${gatewayResponse.status}`)
+        }
+
+        const gatewayData = await gatewayResponse.json()
+        onlineUnits = Array.isArray(gatewayData.units)
+          ? gatewayData.units.map((unit: any) => String(unit))
+          : []
+
+        console.log("DEBUG::DeviceList", "Gateway online units:", onlineUnits)
+      } catch (gatewayError) {
+        console.log("DEBUG::DeviceList", "Error fetching gateway units:", gatewayError)
+      }
+
+      const mappedDevices: Device[] = (data || []).map((device: any) => {
+        const serial = device.serial || ''
+        const isOnline = onlineUnits.includes(serial)
+
+        return {
+          id: device.id,
+          device_friendly_name: device.friendly_name || 'Unknown Device',
+          device_serial: serial || 'N/A',
+          status: isOnline ? 'online' : 'offline',
+          group_name: device.mvr_device_groups?.name || null,
+        }
+      })
 
       console.log("DEBUG::DeviceList", "Mapped devices:", mappedDevices)
       setDevices(mappedDevices)
@@ -245,16 +271,24 @@ export function DeviceList() {
             </div>
             <div className="border-t border-gray-200 p-4 bg-gray-50/50 rounded-b-lg">
               <div className="flex gap-2">
-                <Button variant="outline" className="flex-1" asChild>
-                  <Link href={`/device/${device.id}`}>
+                {device.status === 'offline' ? (
+                  <Button variant="outline" className="flex-1" disabled>
                     <Eye className="w-4 h-4" />
                     View
-                  </Link>
-                </Button>
+                  </Button>
+                ) : (
+                  <Button variant="outline" className="flex-1" asChild>
+                    <Link href={`/device/${device.id}`}>
+                      <Eye className="w-4 h-4" />
+                      View
+                    </Link>
+                  </Button>
+                )}
                 
                 <LiveStreamDialog 
                   serial={device.device_serial}
                   deviceName={device.device_friendly_name}
+                  disabled={device.status === 'offline'}
                 />
               </div>
             </div>

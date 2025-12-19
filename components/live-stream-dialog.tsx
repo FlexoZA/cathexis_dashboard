@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label"
 interface LiveStreamDialogProps {
   serial: string
   deviceName: string
+  disabled?: boolean
 }
 
 type StreamStatus = 'stopped' | 'starting' | 'active' | 'error'
@@ -44,7 +45,7 @@ const STREAMING_SERVER_URL =
   (process.env.NEXT_PUBLIC_CWE_MVR_API_URL?.replace(/\/$/, '') ||
     'http://109.199.118.33:9000')
 
-export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) {
+export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveStreamDialogProps) {
   const [open, setOpen] = useState(false)
   const [camera, setCamera] = useState<number>(1)
   const [profile, setProfile] = useState<number>(1)
@@ -282,6 +283,7 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
 
   return (
     <Dialog open={open} onOpenChange={(newOpen) => {
+      if (disabled && newOpen) return
       // Only allow closing when not streaming
       if (!newOpen && isStreaming) {
         return
@@ -289,7 +291,7 @@ export function LiveStreamDialog({ serial, deviceName }: LiveStreamDialogProps) 
       setOpen(newOpen)
     }}>
       <DialogTrigger asChild>
-        <Button variant="outline" className="flex-1">
+        <Button variant="outline" className="flex-1" disabled={disabled}>
           <Play className="w-4 h-4" />
           Stream
         </Button>
