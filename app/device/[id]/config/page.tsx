@@ -61,6 +61,7 @@ export default function DeviceConfigPage() {
   const [visibleWifiPasswords, setVisibleWifiPasswords] = useState<Record<number, boolean>>({})
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [pendingUpdates, setPendingUpdates] = useState<Record<string, any>>({})
+  const [activeSection, setActiveSection] = useState<SectionKey>('general')
 
   useEffect(() => {
     fetchDevice()
@@ -149,18 +150,71 @@ export default function DeviceConfigPage() {
     return false
   }
 
+  function extractChanges(current: any, initial: any): any {
+    if (current === undefined) return undefined
+    if (deepEqual(current, initial)) return undefined
+    if (Array.isArray(current) || typeof current !== 'object' || current === null) {
+      return current
+    }
+
+    const result: Record<string, any> = {}
+    Object.keys(current || {}).forEach((key) => {
+      const change = extractChanges(current[key], initial?.[key])
+      if (change !== undefined) {
+        result[key] = change
+      }
+    })
+
+    return Object.keys(result).length > 0 ? result : undefined
+  }
+
+  function buildSectionUpdates(section: SectionKey): Record<string, any> {
+    if (!config || !initialConfig) return {}
+
+    // Cameras have strict shape requirements on the device side; send full section for safety.
+    if (section === 'cameras') {
+      if (!config.cameras) return {}
+      return { cameras: config.cameras }
+    }
+
+    const diff = extractChanges(config[section], initialConfig[section])
+    if (diff === undefined) return {}
+
+    // Some sections have mandatory fields even when unchanged.
+    if (section === 'general') {
+      const account = initialConfig.general?.account ?? 'unassigned'
+      const merged = { ...diff }
+      if (merged.account === undefined) {
+        merged.account = account
+      }
+      return { general: merged }
+    }
+
+    return { [section]: diff }
+  }
+
   const changedSections = useMemo(() => {
     if (!config || !initialConfig) return []
     return sectionOrder.filter((key) => !deepEqual(config[key], initialConfig[key]))
   }, [config, initialConfig])
 
+  const sectionChangedMap = useMemo(() => {
+    const flags = {} as Record<SectionKey, boolean>
+    sectionOrder.forEach((key) => {
+      flags[key] = changedSections.includes(key)
+    })
+    return flags
+  }, [changedSections])
+
   const hasChanges = changedSections.length > 0
 
   function buildUpdates(): Record<string, any> {
     const updates: Record<string, any> = {}
+    if (!config || !initialConfig) return updates
     sectionOrder.forEach((key) => {
-      if (!deepEqual(config?.[key], initialConfig?.[key])) {
-        updates[key] = config?.[key]
+      const sectionUpdate = buildSectionUpdates(key)
+      if (Object.keys(sectionUpdate).length > 0) {
+        Object.assign(updates, sectionUpdate)
       }
     })
     return updates
@@ -207,8 +261,8 @@ export default function DeviceConfigPage() {
     }
   }
 
-  function openSaveConfirm() {
-    const updates = buildUpdates()
+  function openSaveConfirm(updatesOverride?: Record<string, any>) {
+    const updates = updatesOverride || buildUpdates()
     if (Object.keys(updates).length === 0) {
       setSaveMessage('No changes to save')
       return
@@ -443,31 +497,16 @@ export default function DeviceConfigPage() {
               </p>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center sm:gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={resetChanges}
-              disabled={!hasChanges || saving}
-              className="w-full sm:w-auto"
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Reset
-            </Button>
-            <Button onClick={openSaveConfirm} disabled={!hasChanges || saving} className="w-full sm:w-auto">
-              {saving ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save changes
-                </>
-              )}
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={resetChanges}
+            disabled={!hasChanges || saving}
+            className="w-full sm:w-auto"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Reset changes
+          </Button>
         </div>
       </div>
       <div className="bg-white border-b border-gray-200">
@@ -496,24 +535,55 @@ export default function DeviceConfigPage() {
           </div>
         </div>
 
-        {/* Quick links */}
+        {/* Tabs */}
         <div className="bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap gap-2 text-sm">
           {sectionOrder.map((key) => (
-            <a
+            <Button
               key={key}
-              href={`#${key}`}
-              className="px-3 py-1 rounded border border-gray-200 text-gray-700 hover:bg-gray-50"
+              variant={activeSection === key ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setActiveSection(key)}
+              className="flex items-center gap-2"
             >
-              {key.replace(/_/g, ' ')}
-            </a>
+              <span className="capitalize">{key.replace(/_/g, ' ')}</span>
+              {sectionChangedMap[key] && <span className="text-xs text-orange-700">●</span>}
+            </Button>
           ))}
         </div>
 
         {/* General */}
-        <section id="general" className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <ToggleLeft className="w-4 h-4 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">General</h2>
+        <section
+          id="general"
+          className={`${activeSection === 'general' ? 'block' : 'hidden'} bg-white border border-gray-200 rounded-lg p-5 space-y-4`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ToggleLeft className="w-4 h-4 text-gray-700" />
+              <h2 className="text-lg font-semibold text-gray-900">General</h2>
+            </div>
+            <Button
+              onClick={() => {
+                const updates = buildSectionUpdates('general')
+                if (Object.keys(updates).length === 0) {
+                  setSaveMessage('No changes to save')
+                  return
+                }
+                openSaveConfirm(updates)
+              }}
+              disabled={!sectionChangedMap.general || saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save general
+                </>
+              )}
+            </Button>
           </div>
           <p className="text-sm text-gray-600">
             Core device behavior: naming, GPS cadence, audio prompts, IR, standby, and basic unit metadata.
@@ -546,10 +616,38 @@ export default function DeviceConfigPage() {
         </section>
 
         {/* Networks */}
-        <section id="network" className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <ToggleLeft className="w-4 h-4 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">Networks</h2>
+        <section
+          id="network"
+          className={`${activeSection === 'network' ? 'block' : 'hidden'} bg-white border border-gray-200 rounded-lg p-5 space-y-4`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ToggleLeft className="w-4 h-4 text-gray-700" />
+              <h2 className="text-lg font-semibold text-gray-900">Networks</h2>
+            </div>
+            <Button
+              onClick={() => {
+                const updates = buildSectionUpdates('network')
+                if (Object.keys(updates).length === 0) {
+                  setSaveMessage('No changes to save')
+                  return
+                }
+                openSaveConfirm(updates)
+              }}
+              disabled={!sectionChangedMap.network || saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save network
+                </>
+              )}
+            </Button>
           </div>
           <p className="text-sm text-gray-600">
             Primary connectivity for the device: direct API endpoint, APN details, SIM pin, and Cathexis server.
@@ -707,10 +805,38 @@ export default function DeviceConfigPage() {
         </section>
 
         {/* Cameras */}
-        <section id="cameras" className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <ToggleLeft className="w-4 h-4 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">Cameras</h2>
+        <section
+          id="cameras"
+          className={`${activeSection === 'cameras' ? 'block' : 'hidden'} bg-white border border-gray-200 rounded-lg p-5 space-y-4`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ToggleLeft className="w-4 h-4 text-gray-700" />
+              <h2 className="text-lg font-semibold text-gray-900">Cameras</h2>
+            </div>
+            <Button
+              onClick={() => {
+                const updates = buildSectionUpdates('cameras')
+                if (Object.keys(updates).length === 0) {
+                  setSaveMessage('No changes to save')
+                  return
+                }
+                openSaveConfirm(updates)
+              }}
+              disabled={!sectionChangedMap.cameras || saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save cameras
+                </>
+              )}
+            </Button>
           </div>
           <p className="text-sm text-gray-600">
             Enable cameras and tune per-profile recording (bitrate, FPS, keyframe, audio, continuous/events).
@@ -776,10 +902,38 @@ export default function DeviceConfigPage() {
         </section>
 
         {/* Face Recognition */}
-        <section id="face_recognition" className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <ToggleLeft className="w-4 h-4 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">Face Recognition</h2>
+        <section
+          id="face_recognition"
+          className={`${activeSection === 'face_recognition' ? 'block' : 'hidden'} bg-white border border-gray-200 rounded-lg p-5 space-y-4`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ToggleLeft className="w-4 h-4 text-gray-700" />
+              <h2 className="text-lg font-semibold text-gray-900">Face Recognition</h2>
+            </div>
+            <Button
+              onClick={() => {
+                const updates = buildSectionUpdates('face_recognition')
+                if (Object.keys(updates).length === 0) {
+                  setSaveMessage('No changes to save')
+                  return
+                }
+                openSaveConfirm(updates)
+              }}
+              disabled={!sectionChangedMap.face_recognition || saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save face recognition
+                </>
+              )}
+            </Button>
           </div>
           <p className="text-sm text-gray-600">
             Toggle face recognition and set the service endpoint and port.
@@ -812,10 +966,38 @@ export default function DeviceConfigPage() {
         </section>
 
         {/* Event previews */}
-        <section id="eventpreviews" className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <ToggleLeft className="w-4 h-4 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">Event Previews</h2>
+        <section
+          id="eventpreviews"
+          className={`${activeSection === 'eventpreviews' ? 'block' : 'hidden'} bg-white border border-gray-200 rounded-lg p-5 space-y-4`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ToggleLeft className="w-4 h-4 text-gray-700" />
+              <h2 className="text-lg font-semibold text-gray-900">Event Previews</h2>
+            </div>
+            <Button
+              onClick={() => {
+                const updates = buildSectionUpdates('eventpreviews')
+                if (Object.keys(updates).length === 0) {
+                  setSaveMessage('No changes to save')
+                  return
+                }
+                openSaveConfirm(updates)
+              }}
+              disabled={!sectionChangedMap.eventpreviews || saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save event previews
+                </>
+              )}
+            </Button>
           </div>
           <p className="text-sm text-gray-600">
             Choose which camera (road/cab) captures snapshots for each event type.
@@ -848,10 +1030,38 @@ export default function DeviceConfigPage() {
         </section>
 
         {/* Description */}
-        <section id="description" className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <ToggleLeft className="w-4 h-4 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">Description</h2>
+        <section
+          id="description"
+          className={`${activeSection === 'description' ? 'block' : 'hidden'} bg-white border border-gray-200 rounded-lg p-5 space-y-4`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ToggleLeft className="w-4 h-4 text-gray-700" />
+              <h2 className="text-lg font-semibold text-gray-900">Description</h2>
+            </div>
+            <Button
+              onClick={() => {
+                const updates = buildSectionUpdates('description')
+                if (Object.keys(updates).length === 0) {
+                  setSaveMessage('No changes to save')
+                  return
+                }
+                openSaveConfirm(updates)
+              }}
+              disabled={!sectionChangedMap.description || saving}
+            >
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save description
+                </>
+              )}
+            </Button>
           </div>
           <p className="text-sm text-gray-600">
             Textual metadata about the device (site, org, dealer, firmware identifiers).
@@ -870,10 +1080,22 @@ export default function DeviceConfigPage() {
         </section>
 
         {/* Events note */}
-        <section id="events" className="bg-white border border-gray-200 rounded-lg p-5 space-y-4">
-          <div className="flex items-center gap-2">
-            <ToggleLeft className="w-4 h-4 text-gray-700" />
-            <h2 className="text-lg font-semibold text-gray-900">Events</h2>
+        <section
+          id="events"
+          className={`${activeSection === 'events' ? 'block' : 'hidden'} bg-white border border-gray-200 rounded-lg p-5 space-y-4`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <ToggleLeft className="w-4 h-4 text-gray-700" />
+              <h2 className="text-lg font-semibold text-gray-900">Events</h2>
+            </div>
+            <Button
+              disabled
+              variant="outline"
+              title="Events are read-only for now"
+            >
+              Save events
+            </Button>
           </div>
           <p className="text-sm text-gray-700">
             Event rules are loaded with the configuration. Edit support for every event parameter is coming soon. For now, no event changes will be sent unless you adjust other sections.
@@ -898,7 +1120,13 @@ export default function DeviceConfigPage() {
                 <ul className="list-disc list-inside text-sm text-gray-700 space-y-0.5">
                   {Object.entries(pendingUpdates).map(([section, value]) => (
                     <li key={section}>
-                      {section.replace(/_/g, ' ')} ({typeof value === 'object' ? Object.keys(value || {}).length : 1} fields)
+                      {section.replace(/_/g, ' ')} (
+                        {Array.isArray(value)
+                          ? value.length
+                          : typeof value === 'object' && value !== null
+                            ? Object.keys(value || {}).length
+                            : 1
+                        } fields)
                     </li>
                   ))}
                 </ul>

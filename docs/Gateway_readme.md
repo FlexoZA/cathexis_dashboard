@@ -6,12 +6,13 @@ This repository provides a Node.js (JavaScript-only) server for the MVR5 Third�
 - **GPS Telemetry Ingestion**: Receives continuous GPS data from MVR5 devices via TCP control channel
 - **Device Identification**: Tracks device serial numbers from welcome messages
 - **Connection Registry**: Maintains active connections for all connected units (supports thousands of concurrent connections)
-- **Command Dispatch**: Send commands to specific units by serial number via HTTP API
-- **Webhook Forwarding**: Automatically forwards complete GPS telemetry to configured N8N webhooks
-- **Live Video Streaming**: Real-time H.264 to HLS conversion for browser playback with FFmpeg
-- **Clip Download**: Request and download recorded video clips from device storage
-- **HTTP API**: RESTful endpoints for unit management, command sending, streaming, and health monitoring
-- **Configurable**: Webhook URLs managed via `src/config.json` with environment overrides
+- **Command Dispatch**: Send commands to specific units by serial number via HTTP API (synchronous responses via in-memory Request Manager)
+- **Webhook Forwarding**: Automatically forwards streaming telemetry/events to configured N8N webhooks
+- **Live Video Streaming**: Real-time H.264 to HLS conversion for browser playback with FFmpeg on port 32326
+- **Clip Download**: Request, receive, and store recorded video clips via Supabase Storage with signed URLs
+- **HTTP API**: RESTful endpoints for unit management, command sending, streaming, clips, review playback, mic, events, health, and lightweight metrics
+- **Built-in Hardening**: API key authentication, per-IP rate limiting, and CORS allow-listing
+- **Configurable**: Webhook URLs, ports, and limits managed via `src/config.json` with environment overrides
 
 ### Architecture Overview
 
@@ -77,6 +78,12 @@ This repository provides a Node.js (JavaScript-only) server for the MVR5 Third�
 └─────────────────────────────────────────────────────────────┘
 ```
 
+### Ports
+- **TCP Control**: `32324` (`LISTEN_PORT`) – welcome/GPS/events/commands
+- **TCP Clip Receiver**: `32325` (`VIDEO_LISTEN_PORT`) – MP4 uploads
+- **TCP Streaming**: `32326` (`STREAM_LISTEN_PORT`) – live video/mic/review streams
+- **HTTP API + HLS**: `9000` (`HTTP_PORT`) – REST API, webhook relay, static HLS
+
 ### Data Flow
 
 #### GPS Telemetry & Events (Streaming)
@@ -140,19 +147,125 @@ This repository provides a Node.js (JavaScript-only) server for the MVR5 Third�
 - **Connection Registry**: All serials are stored in normalized format internally
 - **API Responses**: Return normalized serial numbers for consistency
 
+### API Authentication
+
+**All API endpoints require authentication using API keys.** The following endpoints are public and do not require authentication:
+- `/health` - Health check endpoint (for monitoring)
+- `/hls/*` - HLS video streaming files (for browser video playback)
+- `/webhooks/device-messages` - Incoming telemetry/events forwarded to N8N
+
+#### API Key Format
+
+API keys follow the pattern: `cwe_mvr_<random64chars>`
+
+Example: `cwe_mvr_abcdef123456...`
+
+#### Using API Keys
+
+Include your API key in requests using either method:
+
+**Method 1: Authorization Header (Recommended)**
+```bash
+curl -H "Authorization: Bearer cwe_mvr_abc123..." \
+  http://localhost:9000/api/units
+```
+
+**Method 2: X-API-Key Header**
+```bash
+curl -H "X-API-Key: cwe_mvr_abc123..." \
+  http://localhost:9000/api/units
+```
+
+#### Creating API Keys
+
+API keys are managed via Supabase Studio:
+
+1. **Setup Database Table** (first time only):
+   - Open Supabase Studio SQL Editor
+   - Run the SQL from `migrations/gw_api_keys_table_schema.sql`
+   - This creates the `gw_api_keys` table and helper functions
+
+2. **Generate a New API Key**:
+   ```sql
+   -- Run this in Supabase SQL Editor
+   SELECT * FROM create_api_key('Client Name or Description');
+   ```
+   - Copy the `plaintext_key` value **immediately** (only shown once)
+   - Share securely with the third party who needs API access
+   - The key cannot be retrieved again after this
+
+3. **View Active Keys**:
+   ```sql
+   SELECT id, key_prefix, name, created_at, last_used_at
+   FROM gw_api_keys
+   WHERE is_active = true;
+   ```
+
+#### Revoking API Keys
+
+To revoke a key without deleting it:
+
+1. Open Supabase Studio
+2. Navigate to the `gw_api_keys` table
+3. Find the key to revoke
+4. Set `is_active = false`
+
+Or via SQL:
+```sql
+UPDATE gw_api_keys
+SET is_active = false
+WHERE key_prefix = 'cwe_mvr_abc1234';
+```
+
+#### Security Notes
+
+- **Keys are hashed**: Only SHA-256 hashes are stored in the database
+- **HTTPS only**: Always use HTTPS in production to protect keys in transit
+- **Key rotation**: Regularly rotate keys by creating new ones and revoking old ones
+- **Limited scope**: Currently all keys have full access (future versions may add granular permissions)
+- **Logging**: API requests are logged with the key name (not the actual key) for auditing
+- **Caching**: API key lookups are cached in-memory (defaults: 60s positive, 5s negative). Override with `API_KEY_CACHE_TTL_MS` and `API_KEY_NEGATIVE_CACHE_TTL_MS`.
+
+#### Error Responses
+
+**Missing API Key (401)**:
+```json
+{
+  "ok": false,
+  "error": "API key required. Provide via Authorization header (Bearer token) or X-API-Key header"
+}
+```
+
+**Invalid or Inactive API Key (401)**:
+```json
+{
+  "ok": false,
+  "error": "Invalid or inactive API key"
+}
+```
+
 ### What it does
 - **HTTP Server (Express)**:
   - `GET /api/units` – list all connected units
   - `GET /api/units/details` – get detailed connection information
   - `POST /api/units/:serial/command` – send commands to specific units
+  - `POST /api/units/:serial/review/start` – request review playback stream (LL-HLS)
+  - `POST /api/units/:serial/review/command` – control review stream playback (play/pause/resume)
   - `POST /api/units/:serial/stream/start` – start live video streaming
   - `POST /api/units/:serial/stream/stop` – stop live streaming
   - `GET /api/units/:serial/stream/status` – check stream status
   - `GET /api/streams` – list all active streams
+  - `POST /api/units/:serial/mic/start` – start audio-only stream
+  - `POST /api/units/:serial/mic/stop` – stop audio-only stream
   - `POST /api/units/:serial/clips/request` – request recorded video clip
   - `GET /api/units/:serial/clips/status` – check clip download status
+  - `POST /api/units/:serial/events/request` – request event video by GUID
+  - `GET /api/units/:serial/events/:guid/status` – check event clip status
+  - `GET /api/units/:serial/sd-health` – SD card health
+  - `GET /api/units/:serial/environment` – environment stats
   - `POST /webhooks/device-messages` – logs incoming device JSON and forwards to the configured webhook URL
   - `GET /health` – health check endpoint
+  - `GET /metrics` – lightweight process/request metrics
   - Static serving at `/hls/*` – HLS playlist and segments for browser playback
 - **TCP Control Server (Port 32324)**:
   - 12-byte header parsing per MVR5 protocol
@@ -171,20 +284,31 @@ This repository provides a Node.js (JavaScript-only) server for the MVR5 Third�
   - Manages stream sessions and automatic cleanup
   - Serves HLS files for browser playback
 
+### API Hardening (defaults)
+- API key authentication enforced on all routes except `/health`, `/hls/*`, and `/webhooks/device-messages`.
+- Per-IP rate limiting: 300 requests per 60s window (override with `RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_MS`).
+- CORS allow-list: `ALLOWED_ORIGINS` (CSV, `*` by default).
+
 ### Requirements
-- Node.js ≥ 20
+- Node.js ≥ 22
 
 ### Configure
 - Edit `src/config.json` (read-only base). Environment variables override when present:
   - `LISTEN_HOST` (default from config or `0.0.0.0`)
   - `LISTEN_PORT` (default 32324 - control port)
   - `VIDEO_LISTEN_PORT` (default 32325 - clip receiver)
-  - `STREAM_LISTEN_PORT` (default 32326 - live streaming)
+  - `STREAM_LISTEN_PORT` (default 32326 - live streaming/review/mic)
   - `HTTP_PORT` (default 9000)
   - `HLS_ROOT` (default `/app/hls` - HLS output directory)
   - `FFMPEG_PATH` (default `ffmpeg`)
   - `CLIP_RECEIVER_IP` (external IP for devices to connect back)
-  - `SUPABASE_URL` (Supabase API endpoint)
+  - `ALLOWED_ORIGINS` (comma list; default `*` for CORS)
+  - `RATE_LIMIT_WINDOW_MS` (per-IP window; default 60000)
+  - `RATE_LIMIT_MAX_REQUESTS` (max requests per window; default 300)
+  - `MAX_CLIP_SIZE_BYTES` (ingest guard; default 200MB)
+  - `CLIP_INGEST_TIMEOUT_SECONDS` (socket timeout; default 300s)
+  - `SUPABASE_URL` (Supabase API endpoint - internal URL for server-side operations)
+  - `SUPABASE_PUBLIC_URL` (Public URL for signed URLs - defaults to SUPABASE_URL if not set)
   - `SUPABASE_SERVICE_KEY` (Supabase service key)
   - Webhook URLs in `config.json` -> `webhooks` section:
     - `"device": "https://your-n8n-webhook-url"`
@@ -278,8 +402,8 @@ docker logs -f cathexis-node
 
 For manual testing, you can still run individual commands:
 
-- HTTP health check: `curl -s http://<HOST_IP>:9000/health`
-- Webhook ping: `curl -s -X POST http://<HOST_IP>:9000/webhooks/device-messages -H 'Content-Type: application/json' -d '{"ping":"ok"}'`
+- HTTP health check: `curl -s http://<HOST_IP>:9000/health` (no auth required)
+- Webhook ping: `curl -s -X POST http://<HOST_IP>:9000/webhooks/device-messages -H 'Authorization: Bearer cwe_mvr_YOUR_API_KEY' -H 'Content-Type: application/json' -d '{"ping":"ok"}'`
 - Port check: `nc -vz <HOST_IP> 32324`
 
 ### Sending Commands to Units
@@ -289,7 +413,8 @@ The server maintains an active connection registry for all connected MVR5 units.
 #### 1. List Connected Units
 ```bash
 # Get simple list of serial numbers
-curl http://localhost:9000/api/units
+curl -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
+  http://localhost:9000/api/units
 
 # Response:
 {
@@ -298,7 +423,8 @@ curl http://localhost:9000/api/units
 }
 
 # Get detailed unit information
-curl http://localhost:9000/api/units/details
+curl -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
+  http://localhost:9000/api/units/details
 
 # Response:
 {
@@ -318,6 +444,7 @@ curl http://localhost:9000/api/units/details
 #### 2. Start Live Video Stream
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "stream",
@@ -343,6 +470,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 #### 3. Stop Video Stream
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "stream",
@@ -356,6 +484,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 #### 4. Request Unit Configuration
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "request_config"
@@ -378,6 +507,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 #### 5. Request Event Summary
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "request_event_summary"
@@ -387,6 +517,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 #### 6. Request Clip (Recorded Footage)
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "request_clip",
@@ -404,6 +535,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 #### 7. Reboot Unit
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "reboot_unit"
@@ -435,9 +567,10 @@ The server provides a complete clip management system that requests clips from M
 Before using the clip functionality, you must:
 
 1. **Create Supabase Storage Bucket**: Create a bucket named `mvr5-clips` in your Supabase project
-2. **Setup Database Table**: Run the SQL schema in `docs/clips_table_schema.sql` to create the `clips` table
+2. **Setup Database Table**: Run the SQL schema in `migrations/mvr_clips_table_schema.sql` to create the `mvr_clips` table
 3. **Configure Environment Variables**:
-   - `SUPABASE_URL` - Supabase API URL (default: `http://supabase-kong:8000` for Docker network)
+   - `SUPABASE_URL` - Supabase API URL for internal server operations (e.g., `http://10.0.0.1:8000`)
+   - `SUPABASE_PUBLIC_URL` - Public URL for signed URLs and external access (e.g., `https://dfm-db1.crossworks.network`)
    - `SUPABASE_SERVICE_KEY` - Supabase service role key (required, no default)
    - `CLIP_RECEIVER_IP` - External IP for devices to connect back (default: `185.202.223.35`)
 
@@ -459,6 +592,7 @@ Before requesting a clip, check what footage is available:
 
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "request_ring_summary",
@@ -497,6 +631,7 @@ Request a clip using the new dedicated endpoint:
 
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/clips/request \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "camera": 0,
@@ -537,7 +672,8 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/clips/request \
 Poll the status endpoint every 10-15 seconds to check if the clip is ready:
 
 ```bash
-curl "http://localhost:9000/api/units/MVR5452_4064668/clips/status?start_utc=1762318174&end_utc=1762318474&camera=0"
+curl -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
+  "http://localhost:9000/api/units/MVR5452_4064668/clips/status?start_utc=1762318174&end_utc=1762318474&camera=0"
 ```
 
 **While receiving from device:**
@@ -640,13 +776,13 @@ const deviceSerial = 'MVR5452_4064668'
 
 const channel = supabase
   .channel('clips-progress')
-  .on('postgres_changes', 
-    { 
+  .on('postgres_changes',
+    {
       event: '*',  // Listen to INSERT, UPDATE, DELETE
-      schema: 'public', 
-      table: 'clips',
+      schema: 'public',
+      table: 'mvr_clips',
       filter: `serial=eq.${deviceSerial}`  // Filter by device
-    }, 
+    },
     (payload) => {
       const clip = payload.new
       console.log('Clip update:', {
@@ -657,7 +793,7 @@ const channel = supabase
         totalSize: clip.file_size,
         error: clip.error_message
       })
-      
+
       // Update your UI based on status
       if (clip.status === 'receiving') {
         updateProgressBar(clip.progress_percent)
@@ -693,19 +829,19 @@ function ClipDownloader({ deviceSerial, camera, startUtc, endUtc }) {
     // Subscribe to realtime updates
     const channel = supabase
       .channel('clips-progress')
-      .on('postgres_changes', 
+      .on('postgres_changes',
         {
           event: '*',
           schema: 'public',
-          table: 'clips',
+          table: 'mvr_clips',
           filter: `serial=eq.${deviceSerial}`
         },
         (payload) => {
           const clipData = payload.new
-          
+
           // Only update if it matches our requested clip
-          if (clipData.camera === camera && 
-              clipData.start_utc === startUtc && 
+          if (clipData.camera === camera &&
+              clipData.start_utc === startUtc &&
               clipData.end_utc === endUtc) {
             setClip(clipData)
             setProgress(clipData.progress_percent)
@@ -742,7 +878,7 @@ function ClipDownloader({ deviceSerial, camera, startUtc, endUtc }) {
       <button onClick={requestClip} disabled={status !== 'idle'}>
         Request Clip
       </button>
-      
+
       {status === 'receiving' && (
         <div>
           <p>Downloading from device...</p>
@@ -750,15 +886,15 @@ function ClipDownloader({ deviceSerial, camera, startUtc, endUtc }) {
           <p>{progress}% complete</p>
         </div>
       )}
-      
+
       {status === 'uploading' && (
         <p>Uploading to storage...</p>
       )}
-      
+
       {status === 'ready' && clip && (
         <a href={clip.signed_url} download>Download Clip</a>
       )}
-      
+
       {status === 'error' && clip && (
         <p style={{color: 'red'}}>Error: {clip.error_message}</p>
       )}
@@ -809,17 +945,19 @@ Add these to your deployment:
 
 ```bash
 # Supabase Configuration
-SUPABASE_URL=http://supabase-kong:8000           # Internal Docker network URL
-SUPABASE_SERVICE_KEY=your-service-key-here       # Required: Get from Supabase project settings
+SUPABASE_URL=http://10.0.0.1:8000               # Internal URL for server-side operations
+SUPABASE_PUBLIC_URL=https://dfm-db1.crossworks.network  # Public URL for signed URLs
+SUPABASE_SERVICE_KEY=your-service-key-here      # Required: Get from Supabase project settings
 
 # Clip Receiver Configuration
-CLIP_RECEIVER_IP=185.202.223.35                  # External IP for MVR5 devices to connect back
+CLIP_RECEIVER_IP=185.202.223.35                 # External IP for MVR5 devices to connect back
 ```
 
 **Docker Compose Example:**
 ```yaml
 environment:
-  - SUPABASE_URL=http://supabase-kong:8000
+  - SUPABASE_URL=http://10.0.0.1:8000
+  - SUPABASE_PUBLIC_URL=https://dfm-db1.crossworks.network
   - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
   - CLIP_RECEIVER_IP=185.202.223.35
 ```
@@ -832,31 +970,24 @@ Run the SQL schema to create the clips table:
 
 ```bash
 # Connect to your Supabase SQL Editor and run:
-cat docs/clips_table_schema.sql
+cat migrations/mvr_clips_table_schema.sql
 ```
 
 Or in Supabase Studio:
 1. Go to SQL Editor
-2. Copy contents of `docs/clips_table_schema.sql`
+2. Copy contents of `migrations/mvr_clips_table_schema.sql`
 3. Execute the SQL
 
-This creates the `clips` table with indexes for efficient queries.
+This creates the `mvr_clips` table with indexes for efficient queries.
 
 **Enable Progress Tracking (Required for Real-time Updates):**
 
-After initial setup, run the progress tracking migration:
-
-```bash
-# In Supabase SQL Editor, run:
-cat docs/clips_table_progress_migration.sql
-```
-
-This adds:
+The progress tracking columns are already included in the `migrations/mvr_clips_table_schema.sql` file:
 - `status` column (receiving, uploading, ready, error)
 - `progress_percent` column (0-100)
 - `bytes_received` column (bytes downloaded so far)
 - `error_message` column (error details if failed)
-- Enables Supabase Realtime for the clips table
+- Supabase Realtime is enabled for the mvr_clips table
 
 **Note:** If you're setting up for the first time, you can combine both SQL files into one execution, or run them separately in order.
 
@@ -878,6 +1009,7 @@ Start streaming from a specific camera:
 
 ```bash
 curl -X POST http://185.202.223.35:9000/api/units/MVR5452_6107768/stream/start \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "camera": 0,
@@ -909,7 +1041,8 @@ curl -X POST http://185.202.223.35:9000/api/units/MVR5452_6107768/stream/start \
 Poll to verify stream is active and ready:
 
 ```bash
-curl "http://185.202.223.35:9000/api/units/MVR5452_6107768/stream/status?camera=0&profile=1"
+curl -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
+  "http://185.202.223.35:9000/api/units/MVR5452_6107768/stream/status?camera=0&profile=1"
 ```
 
 **Response (active):**
@@ -943,12 +1076,15 @@ http://185.202.223.35:9000/hls/MVR5452_6107768/0/1/stream.m3u8
 </script>
 ```
 
-**For React/Next.js integration**, see `docs/FRONTEND_STREAMING_GUIDE.md`.
+**For React/Next.js integration**, see:
+- **Live Streaming:** `docs/FRONTEND_STREAMING_GUIDE.md`
+- **Clip Requests:** `docs/FRONTEND_CLIPS_GUIDE.md`
 
 #### 4. Stop Stream
 
 ```bash
 curl -X POST http://185.202.223.35:9000/api/units/MVR5452_6107768/stream/stop \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"camera": 0, "profile": 1}'
 ```
@@ -958,7 +1094,8 @@ This immediately kills FFmpeg and deletes HLS files.
 #### 5. List Active Streams
 
 ```bash
-curl http://185.202.223.35:9000/api/streams
+curl -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
+  http://185.202.223.35:9000/api/streams
 ```
 
 **Port Configuration:**
@@ -989,6 +1126,7 @@ When you send an `update_config` command:
 
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "update_config",
@@ -1027,6 +1165,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "update_config",
@@ -1053,6 +1192,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "update_config",
@@ -1128,6 +1268,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "update_config",
@@ -1175,6 +1316,7 @@ curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
 
 ```bash
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "update_config",
@@ -1255,6 +1397,7 @@ You can update individual config sections without sending the entire configurati
 ```bash
 # Update only GPS frequency
 curl -X POST http://localhost:9000/api/units/MVR5452_4064668/command \
+  -H "Authorization: Bearer cwe_mvr_YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "type": "update_config",

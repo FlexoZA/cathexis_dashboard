@@ -63,7 +63,9 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { serial, updates } = body || {}
+    const rawSerial = (body?.serial || '').toString().trim()
+    const serial = rawSerial.replace(/\s+/g, '_')
+    const { updates } = body || {}
 
     if (!serial) {
       return NextResponse.json(
