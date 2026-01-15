@@ -15,7 +15,9 @@ Next.js dashboard for managing Cathexis MVR5 dashcam devices, requesting clips, 
 - FFmpeg available on the backend for streaming (per backend docs)
 
 ## Environment
-Create `.env.local` with:
+Use `env.example` as a starting point, and copy it to `.env.local` (default) or the staging/production files below.
+
+By default, create `.env.local` with:
 ```
 CWE_MVR_API_URL=<http://backend-host:9000>
 CWE_MVR_API_KEY=<bearer token expected by backend>
@@ -23,6 +25,17 @@ NEXT_PUBLIC_SUPABASE_URL=<your supabase url>
 NEXT_PUBLIC_SUPABASE_ANON_KEY=<your supabase anon key>
 ```
 _Do not commit secrets. Never overwrite existing env files._
+
+### Staging vs Production switch (simple)
+If you want a quick way to swap configs without editing `.env.local`, create:
+- `.env.staging.local`
+- `.env.production.local`
+
+With the same keys as above, then run/build with:
+- `ENV=staging` (loads staging)
+- `ENV=production` (loads production)
+
+If `ENV` is not set, the app falls back to the normal Next.js env loading behavior (e.g. `.env.local`).
 
 ## Install & Run
 ```
