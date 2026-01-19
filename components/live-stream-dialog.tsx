@@ -41,10 +41,6 @@ const profileOptions = [
   { value: 1, label: 'Low Resolution (360p)' }
 ]
 
-const STREAMING_SERVER_URL =
-  (process.env.NEXT_PUBLIC_CWE_MVR_API_URL?.replace(/\/$/, '') ||
-    'http://109.199.118.33:9000')
-
 export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveStreamDialogProps) {
   const [open, setOpen] = useState(false)
   const [camera, setCamera] = useState<number>(1)
@@ -129,7 +125,7 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
     videoElement.setAttribute('playsinline', '')
     containerRef.current.appendChild(videoElement)
 
-    console.log("DEBUG::LiveStreamDialog", "Initializing player:", streamUrl)
+    console.log("DEBUG::LiveStreamDialog", { event: "initializing_player", streamUrl })
 
     try {
       const player = videojs(videoElement, {
@@ -177,7 +173,21 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
       }
       
       setStatus('starting')
-      const hlsUrl = `${STREAMING_SERVER_URL}${data.stream_url || `/hls/${serial}/${camera}/${profile}/stream.m3u8`}`
+
+      // Use server-provided absolute HLS URL (derived from CWE_MVR_API_URL server-side).
+      const streamUrlFull = typeof data.stream_url_full === 'string' ? data.stream_url_full : null
+      const hlsBaseUrl = typeof data.hls_base_url === 'string' ? data.hls_base_url : null
+      const streamUrlPath = typeof data.stream_url === 'string' ? data.stream_url : null
+
+      const hlsUrl =
+        streamUrlFull ||
+        (hlsBaseUrl && streamUrlPath ? new URL(streamUrlPath, hlsBaseUrl).toString() : null) ||
+        null
+
+      if (!hlsUrl) {
+        throw new Error('Stream started but no HLS URL was returned')
+      }
+
       setStreamUrl(hlsUrl)
       pollStreamStatus()
       
@@ -190,7 +200,7 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
   }
 
   function stopStream() {
-    console.log("DEBUG::LiveStreamDialog", "Stopping stream and closing dialog")
+    console.log("DEBUG::LiveStreamDialog", { event: "stopping_stream" })
     
     // Clear polling first
     if (pollingIntervalRef.current) {
@@ -227,7 +237,7 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
       body: JSON.stringify({ serial, camera, profile })
     })
       .then(res => res.json())
-      .then(data => console.log("DEBUG::LiveStreamDialog", "Stop response:", data))
+      .then(data => console.log("DEBUG::LiveStreamDialog", { event: "stop_response", data }))
       .catch(err => console.error("DEBUG::LiveStreamDialog", "Error stopping stream:", err))
   }
 

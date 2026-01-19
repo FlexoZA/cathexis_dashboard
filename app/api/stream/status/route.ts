@@ -34,7 +34,16 @@ export async function POST(request: NextRequest) {
     const data = await response.json()
     console.log("DEBUG::StreamStatusAPI", "Backend response:", data)
 
-    return NextResponse.json(data)
+    // Provide an absolute HLS URL for the browser (client components can't read non-NEXT_PUBLIC envs).
+    const hlsBaseUrl = BACKEND_BASE_URL.replace(/\/$/, '')
+    const streamUrlRaw = typeof data?.stream_url === 'string' ? data.stream_url : null
+    const streamUrlFull = streamUrlRaw ? new URL(streamUrlRaw, hlsBaseUrl).toString() : null
+
+    return NextResponse.json({
+      ...data,
+      hls_base_url: hlsBaseUrl,
+      stream_url_full: streamUrlFull,
+    })
   } catch (error: any) {
     console.log("DEBUG::StreamStatusAPI", "Error:", error)
     return NextResponse.json(
