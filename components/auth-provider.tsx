@@ -27,12 +27,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     // Check active session
-    console.log("DEBUG::AuthProvider", "Checking for active session...")
+    console.log("DEBUG::AuthProvider", { action: "getSession_start" })
     supabase.auth.getSession().then(({ data: { session } }) => {
-      console.log("DEBUG::AuthProvider", "Session:", session ? "Found" : "Not found")
-      if (session?.user) {
-        console.log("DEBUG::AuthProvider", "User:", session.user.email)
-      }
+      console.log("DEBUG::AuthProvider", { action: "getSession_result", hasSession: !!session, userEmail: session?.user?.email })
       setUser(session?.user ?? null)
       setLoading(false)
     })
@@ -41,8 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log("DEBUG::AuthProvider", "Auth state changed:", event)
-      console.log("DEBUG::AuthProvider", "New session:", session ? "Exists" : "None")
+      console.log("DEBUG::AuthProvider", { action: "authStateChange", event, hasSession: !!session, userEmail: session?.user?.email })
       setUser(session?.user ?? null)
       setLoading(false)
     })
@@ -51,9 +47,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const login = async (email: string, password: string) => {
-    console.log("DEBUG::AuthProvider", "Attempting login for:", email)
+    console.log("DEBUG::AuthProvider", { action: "login_start", email })
     const data = await signIn(email, password)
-    console.log("DEBUG::AuthProvider", "Login successful for:", data.user.email)
+    console.log("DEBUG::AuthProvider", { action: "login_success", userEmail: data.user.email })
     setUser(data.user)
   }
 

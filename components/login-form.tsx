@@ -7,8 +7,8 @@ import { Label } from "@/components/ui/label"
 import { useAuth } from './auth-provider'
 
 export function LoginForm() {
-  const [email, setEmail] = useState('christiaan@schoeman.me')
-  const [password, setPassword] = useState('Chr0846400936#')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
@@ -18,13 +18,13 @@ export function LoginForm() {
     setError(null)
     setLoading(true)
 
-    console.log("DEBUG::LoginForm", "Form submitted with email:", email)
+    console.log("DEBUG::LoginForm", { action: "submit", email })
 
     try {
       await login(email, password)
-      console.log("DEBUG::LoginForm", "Login successful")
+      console.log("DEBUG::LoginForm", { action: "login_success" })
     } catch (err: any) {
-      console.log("DEBUG::LoginForm", "Login error:", err)
+      console.log("DEBUG::LoginForm", { action: "login_error", err })
       setError(err.message || 'Failed to sign in')
     } finally {
       setLoading(false)
@@ -45,6 +45,7 @@ export function LoginForm() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
               required
             />
           </div>
@@ -56,6 +57,7 @@ export function LoginForm() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              autoComplete="current-password"
               required
             />
           </div>
