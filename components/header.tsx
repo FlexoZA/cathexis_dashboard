@@ -9,6 +9,7 @@ import { useAuth } from "./auth-provider"
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [serverStatus, setServerStatus] = useState<"unknown" | "up" | "down">("unknown")
+  const [unitCount, setUnitCount] = useState<number | null>(null)
   const [portTest, setPortTest] = useState<{
     status: "unknown" | "pass" | "warn" | "fail"
     checks: Array<{
@@ -24,6 +25,7 @@ export function Header() {
   useEffect(() => {
     let disposed = false
     let intervalId: ReturnType<typeof setInterval> | null = null
+    let portTestInFlight = false
 
     const controller = new AbortController()
 
@@ -38,6 +40,8 @@ export function Header() {
       }
 
       try {
+        if (portTestInFlight) return
+        portTestInFlight = true
         const res = await fetch("/api/test/system/port-test", {
           method: "POST",
           cache: "no-store",
@@ -47,6 +51,11 @@ export function Header() {
         })
         const data = await res.json().catch(() => null)
         if (disposed) return
+
+        if (res.status === 409) {
+          // Likely "test already running" on the backend; keep current UI state.
+          return
+        }
 
         if (!res.ok || !data?.ok) {
           setPortTest({ status: "fail", checks: [] })
@@ -68,6 +77,28 @@ export function Header() {
       } catch {
         if (disposed) return
         setPortTest({ status: "fail", checks: [] })
+      } finally {
+        portTestInFlight = false
+      }
+
+      try {
+        const res = await fetch("/api/units", { method: "GET", cache: "no-store", signal: controller.signal })
+        const data = await res.json().catch(() => null)
+        if (disposed) return
+        if (!res.ok) {
+          setUnitCount(null)
+          return
+        }
+        const count =
+          typeof data?.count === "number"
+            ? data.count
+            : Array.isArray(data?.units)
+              ? data.units.length
+              : null
+        setUnitCount(typeof count === "number" ? count : null)
+      } catch {
+        if (disposed) return
+        setUnitCount(null)
       }
     })()
 
@@ -83,6 +114,8 @@ export function Header() {
         }
 
         try {
+          if (portTestInFlight) return
+          portTestInFlight = true
           const res = await fetch("/api/test/system/port-test", {
             method: "POST",
             cache: "no-store",
@@ -92,6 +125,11 @@ export function Header() {
           })
           const data = await res.json().catch(() => null)
           if (disposed) return
+
+          if (res.status === 409) {
+            // Likely "test already running" on the backend; keep current UI state.
+            return
+          }
 
           if (!res.ok || !data?.ok) {
             setPortTest({ status: "fail", checks: [] })
@@ -116,6 +154,28 @@ export function Header() {
         } catch {
           if (disposed) return
           setPortTest({ status: "fail", checks: [] })
+        } finally {
+          portTestInFlight = false
+        }
+
+        try {
+          const res = await fetch("/api/units", { method: "GET", cache: "no-store", signal: controller.signal })
+          const data = await res.json().catch(() => null)
+          if (disposed) return
+          if (!res.ok) {
+            setUnitCount(null)
+            return
+          }
+          const count =
+            typeof data?.count === "number"
+              ? data.count
+              : Array.isArray(data?.units)
+                ? data.units.length
+                : null
+          setUnitCount(typeof count === "number" ? count : null)
+        } catch {
+          if (disposed) return
+          setUnitCount(null)
         }
       })()
     }, 30000)
@@ -142,7 +202,7 @@ export function Header() {
     <header className="w-full border-b bg-background">
       <div className="w-full max-w-7xl mx-auto flex h-16 items-center justify-between px-4">
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold">Cathexis Dashboard</h1>
+          <h1 className="text-xl font-bold">CWE GW manager</h1>
         </div>
         <nav className="flex items-center gap-4 relative">
           <div className="flex items-center gap-3 text-muted-foreground">
@@ -165,6 +225,14 @@ export function Header() {
                 />
               </div>
             </div>
+
+            <span
+              className="text-xs font-medium px-2 py-1 rounded-md border border-muted-foreground/20 bg-muted/30"
+              title={`Connected units: ${unitCount === null ? "unknown" : unitCount}`}
+              aria-label={`Connected units: ${unitCount === null ? "unknown" : unitCount}`}
+            >
+              Units: {unitCount === null ? "—" : unitCount}
+            </span>
 
             <div
               className="flex items-center gap-2"
