@@ -1,14 +1,12 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft, Settings, Activity, MapPin, Film, Download, Trash2, Play, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { supabase } from "@/lib/supabase"
 import { RequestClipDialog } from "@/components/request-clip-dialog"
 import { VideoPlayerDialog } from "@/components/video-player-dialog"
-import { DeviceBreadcrumb } from "@/components/device-breadcrumb"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,12 +24,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { getCapabilitiesForUnit, normalizeProtocol } from "@/lib/units/registry"
+import { DevicePageShell } from "@/components/device-shell/device-page-shell"
 
 interface Device {
   id: number
   friendly_name: string | null
   serial: string | null
   device_model: string | null
+  protocol: string | null
   status: 'online' | 'offline' | 'warning' | 'maintenance' | null
   created_at: string
   client_id: number | null
@@ -74,16 +75,6 @@ const clipStatusConfig = {
   failed: { label: 'Failed', color: 'bg-red-500/10 text-red-500 border-red-500/20' },
 }
 
-const cameraNames = {
-  0: 'Road',
-  1: 'Cab'
-}
-
-const profileNames = {
-  0: 'High Res',
-  1: 'Low Res'
-}
-
 export default function DevicePage() {
   const params = useParams()
   const router = useRouter()
@@ -112,10 +103,27 @@ export default function DevicePage() {
   const [sdHealthLoadedAt, setSdHealthLoadedAt] = useState<string | null>(null)
 
   const deviceId = params.id as string
+  const unitCapabilities = getCapabilitiesForUnit({
+    serial: device?.serial,
+    deviceModel: device?.device_model,
+    protocol: normalizeProtocol(device?.protocol),
+  })
 
   useEffect(() => {
     fetchDevice()
   }, [deviceId])
+
+  useEffect(() => {
+    const hasCamera = unitCapabilities.cameraOptions.some((option) => option.value.toString() === speedTestCamera)
+    const hasProfile = unitCapabilities.profileOptions.some((option) => option.value.toString() === speedTestProfile)
+
+    if (!hasCamera) {
+      setSpeedTestCamera((unitCapabilities.cameraOptions[0]?.value ?? 0).toString())
+    }
+    if (!hasProfile) {
+      setSpeedTestProfile((unitCapabilities.profileOptions[0]?.value ?? 0).toString())
+    }
+  }, [unitCapabilities, speedTestCamera, speedTestProfile])
 
   useEffect(() => {
     void (async () => {
@@ -376,7 +384,9 @@ export default function DevicePage() {
       // Create filename from clip metadata
       const date = new Date(clip.start_utc * 1000)
       const dateStr = date.toISOString().replace(/[:.]/g, '-').slice(0, -5) // Format: YYYY-MM-DDTHH-MM-SS
-      const filename = `${clip.serial}_${cameraNames[clip.camera as 0 | 1].toLowerCase()}_${dateStr}.mp4`
+      const cameraLabel =
+        unitCapabilities.cameraOptions.find((option) => option.value === clip.camera)?.label || `camera_${clip.camera}`
+      const filename = `${clip.serial}_${cameraLabel.toLowerCase().replace(/\s+/g, '_')}_${dateStr}.mp4`
 
       // Fetch the file as a blob (required for cross-origin downloads)
       console.log("DEBUG::DevicePage", "Fetching file as blob...")
@@ -508,54 +518,12 @@ export default function DevicePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="w-full max-w-7xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                {device.friendly_name || 'Unnamed Device'}
-              </h1>
-              <p className="text-sm text-gray-600">
-                Device #{device.id}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-            >
-              <Link href={`/device/${device.id}/config`}>
-                <Settings className="w-4 h-4 mr-2" />
-                Device Config
-              </Link>
-            </Button>
-            <span
-              className={`text-sm font-medium px-3 py-1 rounded-full border ${
-                statusConfig[device.status || 'offline'].color
-              }`}
-            >
-              {statusConfig[device.status || 'offline'].label}
-            </span>
-          </div>
-        </div>
-      </div>
-      <div className="bg-white border-b border-gray-200">
-        <div className="w-full max-w-7xl mx-auto px-4 py-3">
-          <DeviceBreadcrumb
-            items={[
-              { label: "Devices", href: "/" },
-              { label: device.friendly_name || "Device" },
-            ]}
-          />
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="w-full max-w-7xl mx-auto px-4 py-6">
+    <DevicePageShell
+      deviceId={device.id}
+      deviceName={device.friendly_name || 'Unnamed Device'}
+      statusLabel={statusConfig[device.status || 'offline'].label}
+      statusClassName={statusConfig[device.status || 'offline'].color}
+    >
         <div className="space-y-6">
           {/* Status & Activity */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -1139,8 +1107,11 @@ export default function DevicePage() {
                         <SelectValue placeholder="Select camera" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="0">0 - Road</SelectItem>
-                        <SelectItem value="1">1 - Cab</SelectItem>
+                        {unitCapabilities.cameraOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value.toString()}>
+                            {option.value} - {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1153,8 +1124,11 @@ export default function DevicePage() {
                         <SelectValue placeholder="Select profile" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="0">0 - High Res</SelectItem>
-                        <SelectItem value="1">1 - Low Res</SelectItem>
+                        {unitCapabilities.profileOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value.toString()}>
+                            {option.value} - {option.label}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
@@ -1324,6 +1298,9 @@ export default function DevicePage() {
               {device.serial && (
                 <RequestClipDialog 
                   serial={device.serial} 
+                  deviceModel={device.device_model}
+                  protocol={device.protocol}
+                  capabilities={unitCapabilities}
                   onClipRequested={() => {
                     console.log("DEBUG::DevicePage", "Clip requested, will rely on real-time updates for progress")
                     // Removed manual fetchClips call - real-time subscription will handle updates
@@ -1352,11 +1329,11 @@ export default function DevicePage() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-sm font-medium text-gray-900">
-                            {cameraNames[clip.camera as 0 | 1]} Camera
+                            {unitCapabilities.cameraOptions.find((option) => option.value === clip.camera)?.label || `Camera ${clip.camera}`}
                           </span>
                           <span className="text-xs text-gray-500">•</span>
                           <span className="text-xs text-gray-600">
-                            {profileNames[clip.profile as 0 | 1]}
+                            {unitCapabilities.profileOptions.find((option) => option.value === clip.profile)?.label || `Profile ${clip.profile}`}
                           </span>
                           <span
                             className={`text-xs font-medium px-2 py-0.5 rounded-full border ml-2 ${
@@ -1488,7 +1465,7 @@ export default function DevicePage() {
             </div>
           </div>
         </div>
-      </div>
+      
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!clipToDelete} onOpenChange={(open) => !open && setClipToDelete(null)}>
@@ -1501,8 +1478,8 @@ export default function DevicePage() {
           </AlertDialogHeader>
           {clipToDelete && (
             <div className="mt-2 p-3 bg-gray-50 rounded border text-sm text-gray-900">
-              <div><span className="font-medium">Camera:</span> {cameraNames[clipToDelete.camera as 0 | 1]}</div>
-              <div><span className="font-medium">Profile:</span> {profileNames[clipToDelete.profile as 0 | 1]}</div>
+              <div><span className="font-medium">Camera:</span> {unitCapabilities.cameraOptions.find((option) => option.value === clipToDelete.camera)?.label || `Camera ${clipToDelete.camera}`}</div>
+              <div><span className="font-medium">Profile:</span> {unitCapabilities.profileOptions.find((option) => option.value === clipToDelete.profile)?.label || `Profile ${clipToDelete.profile}`}</div>
               <div><span className="font-medium">Duration:</span> {formatDuration(clipToDelete.duration_seconds)}</div>
               <div><span className="font-medium">Size:</span> {formatFileSize(clipToDelete.file_size)}</div>
             </div>
@@ -1534,6 +1511,6 @@ export default function DevicePage() {
           }
         }}
       />
-    </div>
+    </DevicePageShell>
   )
 }

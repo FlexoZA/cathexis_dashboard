@@ -19,6 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { getCapabilitiesForUnit, normalizeProtocol } from "@/lib/units/registry"
+import type { UnitCapabilities } from "@/lib/units/types"
 
 interface Region {
   start_utc: number
@@ -45,23 +47,33 @@ interface RingSummaryResponse {
 
 interface RequestClipDialogProps {
   serial: string
+  deviceModel?: string | null
+  protocol?: string | null
+  capabilities?: UnitCapabilities
   onClipRequested?: () => void
 }
 
-const cameraOptions = [
-  { value: 0, label: 'Road Camera' },
-  { value: 1, label: 'Driver Camera' }
-]
+export function RequestClipDialog({
+  serial,
+  deviceModel = null,
+  protocol = null,
+  capabilities,
+  onClipRequested,
+}: RequestClipDialogProps) {
+  const unitCapabilities = capabilities || getCapabilitiesForUnit({
+    serial,
+    deviceModel,
+    protocol: normalizeProtocol(protocol),
+  })
+  const cameraOptions = unitCapabilities.cameraOptions
+  const profileOptions = unitCapabilities.profileOptions
 
-const profileOptions = [
-  { value: 0, label: 'High Resolution' },
-  { value: 1, label: 'Low Resolution' }
-]
+  const defaultCamera = cameraOptions[0]?.value ?? 0
+  const defaultProfile = profileOptions[0]?.value ?? 0
 
-export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialogProps) {
   const [open, setOpen] = useState(false)
-  const [camera, setCamera] = useState<number>(0)
-  const [profile, setProfile] = useState<number>(0)
+  const [camera, setCamera] = useState<number>(defaultCamera)
+  const [profile, setProfile] = useState<number>(defaultProfile)
   const [regions, setRegions] = useState<Region[]>([])
   const [selectedRegion, setSelectedRegion] = useState<Region | null>(null)
   const [startTime, setStartTime] = useState<number | null>(null)
@@ -85,7 +97,26 @@ export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialog
     }
   }, [open])
 
+  useEffect(() => {
+    if (!cameraOptions.some((option) => option.value === camera)) {
+      setCamera(defaultCamera)
+    }
+    if (!profileOptions.some((option) => option.value === profile)) {
+      setProfile(defaultProfile)
+    }
+  }, [camera, profile, cameraOptions, profileOptions, defaultCamera, defaultProfile])
+
   async function fetchRingSummary() {
+    if (!cameraOptions.some((option) => option.value === camera)) {
+      setError('Selected camera is not available for this unit')
+      return
+    }
+
+    if (!profileOptions.some((option) => option.value === profile)) {
+      setError('Selected profile is not available for this unit')
+      return
+    }
+
     try {
       setLoadingRegions(true)
       setError(null)
@@ -99,7 +130,13 @@ export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialog
         body: JSON.stringify({
           serial,
           camera,
-          profile
+          profile,
+          capabilities: {
+            cameraOptions,
+            profileOptions,
+          },
+          protocol,
+          deviceModel,
         })
       })
 
@@ -172,7 +209,13 @@ export function RequestClipDialog({ serial, onClipRequested }: RequestClipDialog
           camera,
           profile,
           start_utc: startTime,
-          end_utc: endTime
+          end_utc: endTime,
+          capabilities: {
+            cameraOptions,
+            profileOptions,
+          },
+          protocol,
+          deviceModel,
         })
       })
 

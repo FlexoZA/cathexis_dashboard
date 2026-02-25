@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { supabase } from "@/lib/supabase"
-import { DeviceBreadcrumb } from "@/components/device-breadcrumb"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,20 +18,30 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { normalizeConfigResponse } from "@/lib/unit-capabilities"
+import { ConfigShell } from "@/components/device-shell/config-shell"
+import { SectionTabs } from "@/components/device-shell/section-tabs"
+import { getCapabilitiesForUnit, getSectionOrderForUnit, normalizeProtocol } from "@/lib/units/registry"
+import type { UnitCapabilities } from "@/lib/units/types"
 
 interface Device {
   id: number
   friendly_name: string | null
   serial: string | null
+  device_model: string | null
+  protocol: string | null
 }
 
 interface DeviceConfigResponse {
   ok: boolean
-  data?: any
+  data?: {
+    config: Record<string, any>
+    capabilities?: UnitCapabilities
+  }
   error?: string
 }
 
-const sectionOrder = [
+const defaultSectionOrder = [
   'general',
   'network',
   'cameras',
@@ -42,8 +51,6 @@ const sectionOrder = [
   'events',
 ] as const
 
-type SectionKey = typeof sectionOrder[number]
-
 export default function DeviceConfigPage() {
   const params = useParams()
   const router = useRouter()
@@ -52,6 +59,7 @@ export default function DeviceConfigPage() {
   const [device, setDevice] = useState<Device | null>(null)
   const [config, setConfig] = useState<any | null>(null)
   const [initialConfig, setInitialConfig] = useState<any | null>(null)
+  const [capabilities, setCapabilities] = useState<UnitCapabilities | null>(null)
   const [loadingDevice, setLoadingDevice] = useState(true)
   const [loadingConfig, setLoadingConfig] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -61,7 +69,7 @@ export default function DeviceConfigPage() {
   const [visibleWifiPasswords, setVisibleWifiPasswords] = useState<Record<number, boolean>>({})
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [pendingUpdates, setPendingUpdates] = useState<Record<string, any>>({})
-  const [activeSection, setActiveSection] = useState<SectionKey>('general')
+  const [activeSection, setActiveSection] = useState<string>('general')
 
   useEffect(() => {
     fetchDevice()
@@ -74,7 +82,7 @@ export default function DeviceConfigPage() {
 
       const { data, error: dbError } = await supabase
         .from('mvr_devices')
-        .select('id, friendly_name, serial')
+        .select('id, friendly_name, serial, device_model, protocol')
         .eq('id', parseInt(deviceId))
         .single()
 
@@ -92,12 +100,14 @@ export default function DeviceConfigPage() {
         id: record.id,
         friendly_name: record.friendly_name,
         serial: record.serial,
+        device_model: record.device_model,
+        protocol: record.protocol,
       }
 
       setDevice(mapped)
 
       if (mapped.serial) {
-        await fetchConfig(mapped.serial)
+        await fetchConfig(mapped.serial, mapped.device_model, mapped.protocol)
       } else {
         setError('Device serial not available')
       }
@@ -109,22 +119,25 @@ export default function DeviceConfigPage() {
     }
   }
 
-  async function fetchConfig(serial: string) {
+  async function fetchConfig(serial: string, deviceModel?: string | null, protocol?: string | null) {
     try {
       setLoadingConfig(true)
       setError(null)
       console.log("DEBUG::DeviceConfigPage", { action: "fetchConfig", serial })
 
-      const response = await fetch(`/api/device-config?serial=${encodeURIComponent(serial)}`)
+      const response = await fetch(
+        `/api/device-config?serial=${encodeURIComponent(serial)}&deviceModel=${encodeURIComponent(deviceModel || '')}&protocol=${encodeURIComponent(protocol || '')}`
+      )
       const data: DeviceConfigResponse = await response.json()
 
       if (!data.ok) {
         throw new Error(data.error || 'Failed to load config from device')
       }
 
-      const payload = data.data
-      setConfig(payload)
-      setInitialConfig(payload)
+      const normalized = normalizeConfigResponse(data.data, serial, deviceModel, protocol)
+      setConfig(normalized.config)
+      setInitialConfig(normalized.config)
+      setCapabilities(normalized.capabilities)
       setSaveMessage(null)
     } catch (err: any) {
       console.log("DEBUG::DeviceConfigPage", { action: "fetchConfigError", error: err })
@@ -168,11 +181,47 @@ export default function DeviceConfigPage() {
     return Object.keys(result).length > 0 ? result : undefined
   }
 
-  function buildSectionUpdates(section: SectionKey): Record<string, any> {
+  const effectiveCapabilities = useMemo(() => {
+    if (capabilities) return capabilities
+    return getCapabilitiesForUnit({
+      serial: device?.serial,
+      deviceModel: device?.device_model,
+      protocol: normalizeProtocol(device?.protocol),
+    })
+  }, [capabilities, device?.serial, device?.device_model, device?.protocol])
+
+  const editableSections = useMemo(
+    () => new Set(effectiveCapabilities.editableSections || []),
+    [effectiveCapabilities]
+  )
+
+  const sectionOrder = useMemo(() => {
+    const fromModule = getSectionOrderForUnit(
+      config || {},
+      effectiveCapabilities,
+      {
+        serial: device?.serial,
+        deviceModel: device?.device_model,
+        protocol: normalizeProtocol(device?.protocol),
+      }
+    )
+    const filteredDefault = defaultSectionOrder.filter((section) => fromModule.includes(section))
+    const extras = fromModule.filter((section) => !filteredDefault.includes(section as any))
+    const ordered = [...filteredDefault, ...extras]
+    return ordered.length > 0 ? ordered : [...defaultSectionOrder]
+  }, [config, effectiveCapabilities, device?.serial, device?.device_model, device?.protocol])
+
+  useEffect(() => {
+    if (!sectionOrder.includes(activeSection)) {
+      setActiveSection(sectionOrder[0] || 'general')
+    }
+  }, [sectionOrder, activeSection])
+
+  function buildSectionUpdates(section: string): Record<string, any> {
     if (!config || !initialConfig) return {}
 
     // Cameras have strict shape requirements on the device side; send full section for safety.
-    if (section === 'cameras') {
+    if (section === 'cameras' && Array.isArray(config.cameras)) {
       if (!config.cameras) return {}
       return { cameras: config.cameras }
     }
@@ -196,10 +245,10 @@ export default function DeviceConfigPage() {
   const changedSections = useMemo(() => {
     if (!config || !initialConfig) return []
     return sectionOrder.filter((key) => !deepEqual(config[key], initialConfig[key]))
-  }, [config, initialConfig])
+  }, [config, initialConfig, sectionOrder])
 
   const sectionChangedMap = useMemo(() => {
-    const flags = {} as Record<SectionKey, boolean>
+    const flags = {} as Record<string, boolean>
     sectionOrder.forEach((key) => {
       flags[key] = changedSections.includes(key)
     })
@@ -212,6 +261,7 @@ export default function DeviceConfigPage() {
     const updates: Record<string, any> = {}
     if (!config || !initialConfig) return updates
     sectionOrder.forEach((key) => {
+      if (editableSections.size > 0 && !editableSections.has(key)) return
       const sectionUpdate = buildSectionUpdates(key)
       if (Object.keys(sectionUpdate).length > 0) {
         Object.assign(updates, sectionUpdate)
@@ -223,6 +273,15 @@ export default function DeviceConfigPage() {
   async function handleSave(updatesOverride?: Record<string, any>) {
     if (!device?.serial || !config || !initialConfig) return
     const updates = updatesOverride || buildUpdates()
+    const nonEditable = Object.keys(updates).filter(
+      (section) => editableSections.size > 0 && !editableSections.has(section)
+    )
+
+    if (nonEditable.length > 0) {
+      setSaveMessage(`Cannot update read-only sections: ${nonEditable.join(', ')}`)
+      setConfirmOpen(false)
+      return
+    }
 
     if (Object.keys(updates).length === 0) {
       setSaveMessage('No changes to save')
@@ -240,7 +299,10 @@ export default function DeviceConfigPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           serial: device.serial,
+          protocol: device.protocol,
+          deviceModel: device.device_model,
           updates,
+          capabilities: effectiveCapabilities,
         }),
       })
 
@@ -483,45 +545,14 @@ export default function DeviceConfigPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="bg-white border-b border-gray-200">
-        <div className="w-full max-w-7xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-2">
-            <Settings className="w-5 h-5 text-gray-700" />
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">
-                Device Configuration
-              </h1>
-              <p className="text-sm text-gray-600 truncate">
-                {device.friendly_name || 'Unnamed Device'} • {device.serial || 'No serial'}
-              </p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={resetChanges}
-            disabled={!hasChanges || saving}
-            className="w-full sm:w-auto"
-          >
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Reset changes
-          </Button>
-        </div>
-      </div>
-      <div className="bg-white border-b border-gray-200">
-        <div className="w-full max-w-7xl mx-auto px-4 py-3">
-          <DeviceBreadcrumb
-            items={[
-              { label: "Devices", href: "/" },
-              { label: device.friendly_name || "Device", href: `/device/${device.id}` },
-              { label: "Configuration" },
-            ]}
-          />
-        </div>
-      </div>
-
-      <div className="w-full max-w-7xl mx-auto px-4 py-6 space-y-6">
+    <ConfigShell
+      deviceId={device.id}
+      deviceName={device.friendly_name || 'Unnamed Device'}
+      serial={device.serial || 'No serial'}
+      hasChanges={hasChanges}
+      saving={saving}
+      onReset={resetChanges}
+    >
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-sm text-gray-700">
@@ -535,21 +566,13 @@ export default function DeviceConfigPage() {
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="bg-white border border-gray-200 rounded-lg p-4 flex flex-wrap gap-2 text-sm">
-          {sectionOrder.map((key) => (
-            <Button
-              key={key}
-              variant={activeSection === key ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setActiveSection(key)}
-              className="flex items-center gap-2"
-            >
-              <span className="capitalize">{key.replace(/_/g, ' ')}</span>
-              {sectionChangedMap[key] && <span className="text-xs text-orange-700">●</span>}
-            </Button>
-          ))}
-        </div>
+        <SectionTabs
+          sectionOrder={sectionOrder}
+          activeSection={activeSection}
+          sectionChangedMap={sectionChangedMap}
+          editableSections={editableSections}
+          onChange={setActiveSection}
+        />
 
         {/* General */}
         <section
@@ -570,7 +593,7 @@ export default function DeviceConfigPage() {
                 }
                 openSaveConfirm(updates)
               }}
-              disabled={!sectionChangedMap.general || saving}
+              disabled={!sectionChangedMap.general || saving || (editableSections.size > 0 && !editableSections.has('general'))}
             >
               {saving ? (
                 <>
@@ -634,7 +657,7 @@ export default function DeviceConfigPage() {
                 }
                 openSaveConfirm(updates)
               }}
-              disabled={!sectionChangedMap.network || saving}
+              disabled={!sectionChangedMap.network || saving || (editableSections.size > 0 && !editableSections.has('network'))}
             >
               {saving ? (
                 <>
@@ -823,7 +846,7 @@ export default function DeviceConfigPage() {
                 }
                 openSaveConfirm(updates)
               }}
-              disabled={!sectionChangedMap.cameras || saving}
+              disabled={!sectionChangedMap.cameras || saving || (editableSections.size > 0 && !editableSections.has('cameras'))}
             >
               {saving ? (
                 <>
@@ -846,7 +869,7 @@ export default function DeviceConfigPage() {
             <div key={camIdx} className="border border-gray-200 rounded-lg p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold text-gray-900">
-                  Camera {camIdx} {camIdx === 0 ? '(Road)' : '(Cab)'}
+                  {effectiveCapabilities.cameraOptions.find((option) => option.value === camIdx)?.label || `Camera ${camIdx}`}
                 </div>
                 {renderBooleanToggle(
                   `camera-${camIdx}-enabled`,
@@ -860,9 +883,7 @@ export default function DeviceConfigPage() {
                   <div key={profileIdx} className="border border-gray-200 rounded-lg p-3 space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="text-sm font-semibold text-gray-900">
-                        {profileIdx === 0
-                          ? 'High Definition (1080p/720p)'
-                          : 'Low Definition (360p)'} (Profile {profileIdx})
+                        {effectiveCapabilities.profileOptions.find((option) => option.value === profileIdx)?.label || `Profile ${profileIdx}`}
                       </div>
                       {renderBooleanToggle(
                         `camera-${camIdx}-profile-${profileIdx}-enabled`,
@@ -920,7 +941,7 @@ export default function DeviceConfigPage() {
                 }
                 openSaveConfirm(updates)
               }}
-              disabled={!sectionChangedMap.face_recognition || saving}
+              disabled={!sectionChangedMap.face_recognition || saving || (editableSections.size > 0 && !editableSections.has('face_recognition'))}
             >
               {saving ? (
                 <>
@@ -984,7 +1005,7 @@ export default function DeviceConfigPage() {
                 }
                 openSaveConfirm(updates)
               }}
-              disabled={!sectionChangedMap.eventpreviews || saving}
+              disabled={!sectionChangedMap.eventpreviews || saving || (editableSections.size > 0 && !editableSections.has('eventpreviews'))}
             >
               {saving ? (
                 <>
@@ -1008,7 +1029,7 @@ export default function DeviceConfigPage() {
                 <div className="text-sm font-semibold text-gray-900 mb-3 capitalize">{preview.name || `Preview ${index}`}</div>
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-700">Road camera (Camera 0)</Label>
+                    <Label className="text-xs text-gray-700">{effectiveCapabilities.cameraOptions.find((option) => option.value === 0)?.label || 'Camera 0'}</Label>
                     {renderBooleanToggle(
                       `preview-${index}-road`,
                       Boolean(preview.road),
@@ -1016,7 +1037,7 @@ export default function DeviceConfigPage() {
                     )}
                   </div>
                   <div className="space-y-1">
-                    <Label className="text-xs text-gray-700">Cab camera (Camera 1)</Label>
+                    <Label className="text-xs text-gray-700">{effectiveCapabilities.cameraOptions.find((option) => option.value === 1)?.label || 'Camera 1'}</Label>
                     {renderBooleanToggle(
                       `preview-${index}-cab`,
                       Boolean(preview.cab),
@@ -1048,7 +1069,7 @@ export default function DeviceConfigPage() {
                 }
                 openSaveConfirm(updates)
               }}
-              disabled={!sectionChangedMap.description || saving}
+              disabled={!sectionChangedMap.description || saving || (editableSections.size > 0 && !editableSections.has('description'))}
             >
               {saving ? (
                 <>
@@ -1090,18 +1111,107 @@ export default function DeviceConfigPage() {
               <h2 className="text-lg font-semibold text-gray-900">Events</h2>
             </div>
             <Button
-              disabled
-              variant="outline"
-              title="Events are read-only for now"
+              onClick={() => {
+                const updates = buildSectionUpdates('events')
+                if (Object.keys(updates).length === 0) {
+                  setSaveMessage('No changes to save')
+                  return
+                }
+                openSaveConfirm(updates)
+              }}
+              disabled={!sectionChangedMap.events || saving || (editableSections.size > 0 && !editableSections.has('events'))}
             >
-              Save events
+              {saving ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save events
+                </>
+              )}
             </Button>
           </div>
           <p className="text-sm text-gray-700">
-            Event rules are loaded with the configuration. Edit support for every event parameter is coming soon. For now, no event changes will be sent unless you adjust other sections.
+            Raw JSON editor for event rules. This supports models with different event schemas.
           </p>
+          <textarea
+            key={`events-${JSON.stringify(initialConfig?.events || {})}`}
+            className="w-full min-h-64 rounded-md border border-gray-300 p-3 text-xs font-mono"
+            defaultValue={JSON.stringify(config.events ?? {}, null, 2)}
+            onBlur={(e) => {
+              try {
+                const next = JSON.parse(e.target.value || '{}')
+                setConfig((prev: any) => ({ ...prev, events: next }))
+                setSaveMessage(null)
+              } catch {
+                setSaveMessage('Events JSON is invalid. Fix JSON syntax before saving.')
+              }
+            }}
+            disabled={editableSections.size > 0 && !editableSections.has('events')}
+          />
         </section>
-      </div>
+
+        {sectionOrder
+          .filter((section) => !defaultSectionOrder.includes(section as any))
+          .map((section) => (
+            <section
+              key={section}
+              id={section}
+              className={`${activeSection === section ? 'block' : 'hidden'} bg-white border border-gray-200 rounded-lg p-5 space-y-4`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ToggleLeft className="w-4 h-4 text-gray-700" />
+                  <h2 className="text-lg font-semibold text-gray-900">{section.replace(/_/g, ' ')}</h2>
+                </div>
+                <Button
+                  onClick={() => {
+                    const updates = buildSectionUpdates(section)
+                    if (Object.keys(updates).length === 0) {
+                      setSaveMessage('No changes to save')
+                      return
+                    }
+                    openSaveConfirm(updates)
+                  }}
+                  disabled={!sectionChangedMap[section] || saving || (editableSections.size > 0 && !editableSections.has(section))}
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Save {section.replace(/_/g, ' ')}
+                    </>
+                  )}
+                </Button>
+              </div>
+              <p className="text-sm text-gray-700">
+                Raw JSON editor for model-specific fields. Use valid JSON format.
+              </p>
+              <textarea
+                key={`${section}-${JSON.stringify(initialConfig?.[section] || {})}`}
+                className="w-full min-h-64 rounded-md border border-gray-300 p-3 text-xs font-mono"
+                defaultValue={JSON.stringify(config?.[section] ?? {}, null, 2)}
+                onBlur={(e) => {
+                  try {
+                    const next = JSON.parse(e.target.value || '{}')
+                    setConfig((prev: any) => ({ ...prev, [section]: next }))
+                    setSaveMessage(null)
+                  } catch {
+                    setSaveMessage(`${section} JSON is invalid. Fix JSON syntax before saving.`)
+                  }
+                }}
+                disabled={editableSections.size > 0 && !editableSections.has(section)}
+              />
+            </section>
+          ))}
+      
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
@@ -1147,7 +1257,7 @@ export default function DeviceConfigPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </ConfigShell>
   )
 }
 

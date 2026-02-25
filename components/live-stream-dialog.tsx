@@ -22,29 +22,42 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { getCapabilitiesForUnit, normalizeProtocol } from "@/lib/units/registry"
+import type { UnitCapabilities } from "@/lib/units/types"
 
 interface LiveStreamDialogProps {
   serial: string
   deviceName: string
+  deviceModel?: string | null
+  protocol?: string | null
+  capabilities?: UnitCapabilities
   disabled?: boolean
 }
 
 type StreamStatus = 'stopped' | 'starting' | 'active' | 'error'
 
-const cameraOptions = [
-  { value: 0, label: 'Road Camera' },
-  { value: 1, label: 'Driver Camera' }
-]
+export function LiveStreamDialog({
+  serial,
+  deviceName,
+  deviceModel = null,
+  protocol = null,
+  capabilities,
+  disabled = false,
+}: LiveStreamDialogProps) {
+  const unitCapabilities = capabilities || getCapabilitiesForUnit({
+    serial,
+    deviceModel,
+    protocol: normalizeProtocol(protocol),
+  })
+  const cameraOptions = unitCapabilities.cameraOptions
+  const profileOptions = unitCapabilities.profileOptions
 
-const profileOptions = [
-  { value: 0, label: 'High Resolution (1080p/720p)' },
-  { value: 1, label: 'Low Resolution (360p)' }
-]
+  const defaultCamera = cameraOptions[0]?.value ?? 0
+  const defaultProfile = profileOptions[0]?.value ?? 0
 
-export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveStreamDialogProps) {
   const [open, setOpen] = useState(false)
-  const [camera, setCamera] = useState<number>(1)
-  const [profile, setProfile] = useState<number>(1)
+  const [camera, setCamera] = useState<number>(defaultCamera)
+  const [profile, setProfile] = useState<number>(defaultProfile)
   const [status, setStatus] = useState<StreamStatus>('stopped')
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -71,6 +84,15 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
     profileRef.current = profile
   }, [serial, camera, profile])
 
+  useEffect(() => {
+    if (!cameraOptions.some((option) => option.value === camera)) {
+      setCamera(defaultCamera)
+    }
+    if (!profileOptions.some((option) => option.value === profile)) {
+      setProfile(defaultProfile)
+    }
+  }, [camera, profile, cameraOptions, profileOptions, defaultCamera, defaultProfile])
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -91,7 +113,13 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
           body: JSON.stringify({
             serial: serialRef.current,
             camera: cameraRef.current,
-            profile: profileRef.current
+            profile: profileRef.current,
+            capabilities: {
+              cameraOptions,
+              profileOptions,
+            },
+            protocol,
+            deviceModel,
           }),
           keepalive: true
         }).catch(console.error)
@@ -155,6 +183,16 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
   }, [streamUrl, status])
 
   async function startStream() {
+    if (!cameraOptions.some((option) => option.value === camera)) {
+      setError('Selected camera is not available for this unit')
+      return
+    }
+
+    if (!profileOptions.some((option) => option.value === profile)) {
+      setError('Selected profile is not available for this unit')
+      return
+    }
+
     setIsLoading(true)
     setError(null)
     
@@ -162,7 +200,18 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
       const response = await fetch('/api/stream/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serial, camera, profile, period: 0 })
+        body: JSON.stringify({
+          serial,
+          camera,
+          profile,
+          period: 0,
+          capabilities: {
+            cameraOptions,
+            profileOptions,
+          },
+          protocol,
+          deviceModel,
+        })
       })
       
       const data = await response.json()
@@ -234,7 +283,17 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
     fetch('/api/stream/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ serial, camera, profile })
+      body: JSON.stringify({
+        serial,
+        camera,
+        profile,
+        capabilities: {
+          cameraOptions,
+          profileOptions,
+        },
+        protocol,
+        deviceModel,
+      })
     })
       .then(res => res.json())
       .then(data => console.log("DEBUG::LiveStreamDialog", { event: "stop_response", data }))
@@ -256,7 +315,17 @@ export function LiveStreamDialog({ serial, deviceName, disabled = false }: LiveS
         const response = await fetch('/api/stream/status', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ serial, camera, profile })
+          body: JSON.stringify({
+            serial,
+            camera,
+            profile,
+            capabilities: {
+              cameraOptions,
+              profileOptions,
+            },
+            protocol,
+            deviceModel,
+          })
         })
         const data = await response.json()
         

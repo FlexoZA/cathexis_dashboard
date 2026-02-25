@@ -1,6 +1,6 @@
 # Cathexis Dashboard
 
-Next.js dashboard for managing Cathexis MVR5 dashcam devices, requesting clips, and starting/stopping live streams.
+Next.js dashboard for managing Cathexis MVR devices (including MVR5 and N62), requesting clips, configuring units, and starting/stopping live streams.
 
 ## Stack
 - Next.js 16 / React 19 / TypeScript
@@ -59,6 +59,13 @@ App runs at http://localhost:3000.
    - `POST /api/stream/stop` → `${CWE_MVR_API_URL}/api/units/:serial/stream/stop`.
 Detailed frontend/video.js guidance: `docs/FRONTEND_STREAMING_GUIDE.md`. Backend streaming behavior and tests: `docs/STREAMING_TEST_GUIDE.md`.
 
+## Multi-Unit Commissioning
+- The frontend consumes a normalized `config + capabilities` shape from `GET /api/device-config`.
+- Unit behavior is resolved by `mvr_devices.protocol` (`mvr5`, `jt808`) using protocol modules under `lib/units/`.
+- Camera/profile selectors (streaming, clips, and speed-test inputs) are capability-driven per unit instead of hardcoded positions.
+- Commissioning save calls (`PATCH /api/device-config`) include capability metadata so unsupported/read-only sections are blocked before update.
+- For heterogeneous models (e.g., N62 ULV ParamTypes), the config page includes raw JSON section editors for model-specific fields.
+
 ## Clip Request Flow
 1) User requests clip via UI dialog → `POST /api/clips/request`.
 2) Next API proxy forwards to `${CWE_MVR_API_URL}/api/units/:serial/clips/request` with `camera`, `profile`, `start_utc`, `end_utc`.
@@ -71,7 +78,7 @@ Detailed frontend/video.js guidance: `docs/FRONTEND_STREAMING_GUIDE.md`. Backend
 ## Project Structure
 - `app/` — Next App Router routes and API proxies to backend.
 - `components/` — UI, including streaming and clip dialogs.
-- `lib/` — Supabase client (`NEXT_PUBLIC_SUPABASE_*`) and auth helpers.
+- `lib/` — Supabase client (`NEXT_PUBLIC_SUPABASE_*`), protocol resolver/modules (`lib/units/`), and shared helpers.
 - `docs/` — Backend/API/streaming guides used above.
 - `supabase/` — SQL migrations and schema notes.
 

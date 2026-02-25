@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getCapabilitiesForUnit, normalizeProtocol } from '@/lib/units/registry'
 
 const BACKEND_BASE_URL = process.env.CWE_MVR_API_URL
 const API_KEY = process.env.CWE_MVR_API_KEY
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const { serial, camera, profile, start_utc, end_utc } = body || {}
+    const { serial, camera, profile, start_utc, end_utc, capabilities, protocol, deviceModel } = body || {}
 
     if (!serial) {
       return NextResponse.json(
@@ -27,16 +28,42 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (camera === undefined || camera === null) {
+    if (!Number.isInteger(camera)) {
       return NextResponse.json(
-        { ok: false, error: 'camera is required' },
+        { ok: false, error: 'camera must be an integer' },
         { status: 400 }
       )
     }
 
-    if (profile === undefined || profile === null) {
+    if (!Number.isInteger(profile)) {
       return NextResponse.json(
-        { ok: false, error: 'profile is required' },
+        { ok: false, error: 'profile must be an integer' },
+        { status: 400 }
+      )
+    }
+
+    const resolvedCapabilities =
+      capabilities && Array.isArray(capabilities?.cameraOptions) && Array.isArray(capabilities?.profileOptions)
+        ? capabilities
+        : getCapabilitiesForUnit({ serial, deviceModel, protocol: normalizeProtocol(protocol) })
+
+    const cameraOptions: number[] = Array.isArray(resolvedCapabilities?.cameraOptions)
+      ? resolvedCapabilities.cameraOptions.map((option: any) => option?.value).filter((value: any) => Number.isInteger(value))
+      : []
+    const profileOptions: number[] = Array.isArray(resolvedCapabilities?.profileOptions)
+      ? resolvedCapabilities.profileOptions.map((option: any) => option?.value).filter((value: any) => Number.isInteger(value))
+      : []
+
+    if (cameraOptions.length > 0 && !cameraOptions.includes(camera)) {
+      return NextResponse.json(
+        { ok: false, error: `camera ${camera} is not supported for this unit` },
+        { status: 400 }
+      )
+    }
+
+    if (profileOptions.length > 0 && !profileOptions.includes(profile)) {
+      return NextResponse.json(
+        { ok: false, error: `profile ${profile} is not supported for this unit` },
         { status: 400 }
       )
     }

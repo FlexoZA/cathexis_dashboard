@@ -21,6 +21,8 @@ interface Device {
   id: number
   device_friendly_name: string
   device_serial: string
+  device_model: string | null
+  protocol: string | null
   status: 'online' | 'offline' | 'warning' | 'maintenance'
   group_name: string | null
 }
@@ -104,6 +106,8 @@ export function DeviceList() {
           id: device.id,
           device_friendly_name: device.friendly_name || 'Unknown Device',
           device_serial: serial || 'N/A',
+          device_model: device.device_model || null,
+          protocol: device.protocol || null,
           status: isOnline ? 'online' : 'offline',
           group_name: device.mvr_device_groups?.name || null,
         }
@@ -288,6 +292,8 @@ export function DeviceList() {
                 <LiveStreamDialog 
                   serial={device.device_serial}
                   deviceName={device.device_friendly_name}
+                  deviceModel={device.device_model}
+                  protocol={device.protocol}
                   disabled={device.status === 'offline'}
                 />
               </div>
