@@ -1,6 +1,6 @@
-import { jt808Module } from '@/lib/units/modules/jt808'
-import { mvr5Module } from '@/lib/units/modules/mvr5'
-import { unknownModule } from '@/lib/units/modules/unknown'
+import { jt808Module } from '@/lib/devices/n62/module'
+import { mvr5Module } from '@/lib/devices/cathexis/module'
+import { unknownModule } from '@/lib/devices/unknown/module'
 import type { UnitCapabilities, UnitConfigPayload, UnitModule, UnitModuleContext, UnitProtocol } from '@/lib/units/types'
 
 const modules: Record<UnitProtocol, UnitModule> = {

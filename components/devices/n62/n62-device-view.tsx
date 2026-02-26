@@ -30,6 +30,12 @@ interface DataState {
 
 const INIT_STATE: DataState = { data: null, loading: false, error: null, loadedAt: null }
 
+interface BatchCommand {
+  key: string
+  type: string
+  payload?: Record<string, unknown>
+}
+
 async function postCommand(
   serial: string,
   body: Record<string, unknown>,
@@ -47,7 +53,10 @@ async function postCommand(
     if (!res.ok) {
       return { data: null, error: json?.error || `Request failed (${res.status})` }
     }
-    return { data: json?.data ?? null, error: null }
+    // request_config nests the actual fields inside data.payload;
+    // other commands (request_environment, request_vehicle_info) return flat data
+    const raw = json?.data ?? null
+    return { data: raw?.payload ?? raw, error: null }
   } catch (err: any) {
     return {
       data: null,
@@ -77,6 +86,49 @@ async function fetchSdHealth(
     }
   }
 }
+
+async function fetchBatch(
+  serial: string,
+  commands: BatchCommand[],
+  signal?: AbortSignal
+): Promise<Record<string, { data: any; error: string | null }>> {
+  try {
+    const res = await fetch(`/api/units/${encodeURIComponent(serial)}/n62-batch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands }),
+      cache: "no-store",
+      signal,
+    })
+    const json = await res.json().catch(() => null)
+    if (!res.ok || !json?.ok) {
+      const err = json?.error ?? `Batch request failed (${res.status})`
+      return Object.fromEntries(commands.map((c) => [c.key, { data: null, error: err }]))
+    }
+    const results: Record<string, { data: any; error: string | null }> = {}
+    for (const cmd of commands) {
+      const r = json.results?.[cmd.key]
+      results[cmd.key] = r ? { data: r.data ?? null, error: r.error ?? null } : { data: null, error: "Missing in response" }
+    }
+    return results
+  } catch (err: any) {
+    const msg = err?.name === "AbortError" ? "Request timed out" : (err?.message ?? "Batch failed")
+    return Object.fromEntries(commands.map((c) => [c.key, { data: null, error: msg }]))
+  }
+}
+
+const N62_BATCH_COMMANDS: BatchCommand[] = [
+  { key: "devInfo",  type: "request_config", payload: { paramType: "GenDevInfo" } },
+  { key: "sysTime",  type: "request_config", payload: { paramType: "GenDateTime" } },
+  { key: "vehBase",  type: "request_config", payload: { paramType: "VehBaseInfo" } },
+  { key: "vehPos",   type: "request_config", payload: { paramType: "VehPosition" } },
+  { key: "net4g",    type: "request_config", payload: { paramType: "NetXg" } },
+  { key: "netWifi",  type: "request_config", payload: { paramType: "NetWifi" } },
+  { key: "netCms",   type: "request_config", payload: { paramType: "NetCms" } },
+  { key: "recAttr",  type: "request_config", payload: { paramType: "RecAttr" } },
+  { key: "sdHealth", type: "sd_health" },
+  { key: "termAttr", type: "request_environment" },
+]
 
 function settled(
   setter: React.Dispatch<React.SetStateAction<DataState>>,
@@ -260,29 +312,26 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
     ]
     setters.forEach((s) => startLoading(s))
 
-    const controller = new AbortController()
-    const sig = controller.signal
+    console.log("DEBUG::N62DeviceView", "Refresh all (batch) started", { serial })
 
-    Promise.allSettled([
-      postCommand(serial, { type: "request_config", payload: { paramType: "GenDevInfo" } }, sig).then((r) => settled(setDevInfo, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "GenDateTime" } }, sig).then((r) => settled(setSysTime, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "VehBaseInfo" } }, sig).then((r) => settled(setVehBase, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "VehPosition" } }, sig).then((r) => settled(setVehPos, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "NetXg" } }, sig).then((r) => settled(setNet4g, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "NetWifi" } }, sig).then((r) => settled(setNetWifi, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "NetCms" } }, sig).then((r) => settled(setNetCms, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "RecAttr" } }, sig).then((r) => settled(setRecAttr, r)),
-      fetchSdHealth(serial, sig).then((r) => settled(setSdHealth, r)),
-      postCommand(serial, { type: "request_environment" }, sig).then((r) => settled(setTermAttr, r)),
-    ])
-
-    console.log("DEBUG::N62DeviceView", "Refresh all started", { serial })
+    fetchBatch(serial, N62_BATCH_COMMANDS).then((results) => {
+      settled(setDevInfo,  results.devInfo)
+      settled(setSysTime,  results.sysTime)
+      settled(setVehBase,  results.vehBase)
+      settled(setVehPos,   results.vehPos)
+      settled(setNet4g,    results.net4g)
+      settled(setNetWifi,  results.netWifi)
+      settled(setNetCms,   results.netCms)
+      settled(setRecAttr,  results.recAttr)
+      settled(setSdHealth, results.sdHealth)
+      settled(setTermAttr, results.termAttr)
+    })
   }, [serial])
 
   useEffect(() => {
     if (!serial) return
 
-    console.log("DEBUG::N62DeviceView", "Auto-fetching all N62 data", { serial })
+    console.log("DEBUG::N62DeviceView", "Auto-fetching all N62 data (batch)", { serial })
 
     const controller = new AbortController()
     const sig = controller.signal
@@ -293,18 +342,18 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
     ]
     setters.forEach((s) => startLoading(s))
 
-    Promise.allSettled([
-      postCommand(serial, { type: "request_config", payload: { paramType: "GenDevInfo" } }, sig).then((r) => settled(setDevInfo, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "GenDateTime" } }, sig).then((r) => settled(setSysTime, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "VehBaseInfo" } }, sig).then((r) => settled(setVehBase, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "VehPosition" } }, sig).then((r) => settled(setVehPos, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "NetXg" } }, sig).then((r) => settled(setNet4g, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "NetWifi" } }, sig).then((r) => settled(setNetWifi, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "NetCms" } }, sig).then((r) => settled(setNetCms, r)),
-      postCommand(serial, { type: "request_config", payload: { paramType: "RecAttr" } }, sig).then((r) => settled(setRecAttr, r)),
-      fetchSdHealth(serial, sig).then((r) => settled(setSdHealth, r)),
-      postCommand(serial, { type: "request_environment" }, sig).then((r) => settled(setTermAttr, r)),
-    ])
+    fetchBatch(serial, N62_BATCH_COMMANDS, sig).then((results) => {
+      settled(setDevInfo,  results.devInfo)
+      settled(setSysTime,  results.sysTime)
+      settled(setVehBase,  results.vehBase)
+      settled(setVehPos,   results.vehPos)
+      settled(setNet4g,    results.net4g)
+      settled(setNetWifi,  results.netWifi)
+      settled(setNetCms,   results.netCms)
+      settled(setRecAttr,  results.recAttr)
+      settled(setSdHealth, results.sdHealth)
+      settled(setTermAttr, results.termAttr)
+    })
 
     return () => controller.abort()
   }, [serial])

@@ -26,7 +26,7 @@ import {
 } from "@/components/ui/select"
 import { getCapabilitiesForUnit, normalizeProtocol } from "@/lib/units/registry"
 import { DevicePageShell } from "@/components/device-shell/device-page-shell"
-import { N62DeviceView } from "@/components/device-views/n62-device-view"
+import { N62DeviceView } from "@/components/devices/n62/n62-device-view"
 
 interface Device {
   id: number
