@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import { getCapabilitiesForUnit, normalizeProtocol } from "@/lib/units/registry"
 import { DevicePageShell } from "@/components/device-shell/device-page-shell"
+import { N62DeviceView } from "@/components/device-views/n62-device-view"
 
 interface Device {
   id: number
@@ -129,6 +130,7 @@ export default function DevicePage() {
     void (async () => {
       try {
         if (!device?.serial) return
+        if (normalizeProtocol(device?.protocol) === "jt808") return
 
         setUnitDetailsLoading(true)
         setUnitDetailsError(null)
@@ -171,6 +173,7 @@ export default function DevicePage() {
     void (async () => {
       try {
         if (!device?.serial) return
+        if (normalizeProtocol(device?.protocol) === "jt808") return
 
         setSdHealthLoading(true)
         setSdHealthError(null)
@@ -525,7 +528,15 @@ export default function DevicePage() {
       statusClassName={statusConfig[device.status || 'offline'].color}
     >
         <div className="space-y-6">
-          {/* Status & Activity */}
+          {/* N62 / JT808 unit status — replaces generic status section */}
+          {unitCapabilities.protocol === "jt808" && device.serial && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <N62DeviceView serial={device.serial} />
+            </div>
+          )}
+
+          {/* Status & Activity — only for non-JT808 devices */}
+          {unitCapabilities.protocol !== "jt808" && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
               <Activity className="w-5 h-5 mr-2" />
@@ -1042,6 +1053,7 @@ export default function DevicePage() {
               </div>
             </div>
           </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Basic Information */}
@@ -1439,9 +1451,9 @@ export default function DevicePage() {
           </div>
         </div>
 
-        {/* Future sections for more data */}
+        {/* Location & Network / Recent Activity — only for non-JT808 devices */}
+        {unitCapabilities.protocol !== "jt808" && (
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Location/Network Info */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
               <MapPin className="w-5 h-5 mr-2" />
@@ -1453,7 +1465,6 @@ export default function DevicePage() {
             </div>
           </div>
 
-          {/* Recent Activity */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
               <Activity className="w-5 h-5 mr-2" />
@@ -1465,6 +1476,7 @@ export default function DevicePage() {
             </div>
           </div>
         </div>
+        )}
       
 
       {/* Delete Confirmation Dialog */}
