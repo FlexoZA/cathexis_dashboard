@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Plus } from "lucide-react"
 import {
   Dialog,
@@ -30,23 +30,66 @@ interface Group {
   name: string
 }
 
+interface PrefillData {
+  serial?: string
+  device_model?: string
+  friendly_name?: string
+}
+
 interface AddDeviceDialogProps {
   groups: Group[]
   onDeviceAdded: () => void
+  prefillData?: PrefillData
+  unknownDeviceId?: number
+  onUnknownDeviceLinked?: () => void
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }
 
-export function AddDeviceDialog({ groups, onDeviceAdded }: AddDeviceDialogProps) {
+export function AddDeviceDialog({
+  groups,
+  onDeviceAdded,
+  prefillData,
+  unknownDeviceId,
+  onUnknownDeviceLinked,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+}: AddDeviceDialogProps) {
   const { user } = useAuth()
-  const [open, setOpen] = useState(false)
+  const [internalOpen, setInternalOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  
+
+  const isControlled = controlledOpen !== undefined
+  const dialogOpen = isControlled ? controlledOpen : internalOpen
+
   const [formData, setFormData] = useState({
     serial: "",
     friendly_name: "",
     device_model: "",
     group_id: "none",
   })
+
+  useEffect(() => {
+    if (dialogOpen && prefillData) {
+      setFormData({
+        serial: prefillData.serial || "",
+        friendly_name: prefillData.friendly_name || "",
+        device_model: prefillData.device_model || "",
+        group_id: "none",
+      })
+    }
+  }, [dialogOpen, prefillData])
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!isControlled) {
+      setInternalOpen(newOpen)
+    }
+    controlledOnOpenChange?.(newOpen)
+    if (!newOpen) {
+      setError(null)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -84,7 +127,20 @@ export function AddDeviceDialog({ groups, onDeviceAdded }: AddDeviceDialogProps)
 
       console.log("DEBUG::AddDeviceDialog", "Device added successfully:", data)
 
-      // Reset form
+      if (unknownDeviceId !== undefined) {
+        const { error: deleteError } = await supabase
+          .from('mvr_unknown_devices')
+          .delete()
+          .eq('id', unknownDeviceId)
+
+        if (deleteError) {
+          console.log("DEBUG::AddDeviceDialog", "Error removing unknown device:", deleteError)
+        } else {
+          console.log("DEBUG::AddDeviceDialog", "Unknown device removed:", unknownDeviceId)
+          onUnknownDeviceLinked?.()
+        }
+      }
+
       setFormData({
         serial: "",
         friendly_name: "",
@@ -92,7 +148,7 @@ export function AddDeviceDialog({ groups, onDeviceAdded }: AddDeviceDialogProps)
         group_id: "none",
       })
 
-      setOpen(false)
+      handleOpenChange(false)
       onDeviceAdded()
     } catch (err: any) {
       console.log("DEBUG::AddDeviceDialog", "Catch block error:", err)
@@ -103,13 +159,15 @@ export function AddDeviceDialog({ groups, onDeviceAdded }: AddDeviceDialogProps)
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button className="bg-blue-300 hover:bg-blue-500">
-          <Plus className="w-4 h-4" />
-          Add new device
-        </Button>
-      </DialogTrigger>
+    <Dialog open={dialogOpen} onOpenChange={handleOpenChange}>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          <Button className="bg-blue-300 hover:bg-blue-500">
+            <Plus className="w-4 h-4" />
+            Add new device
+          </Button>
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Add New Device</DialogTitle>
@@ -183,7 +241,7 @@ export function AddDeviceDialog({ groups, onDeviceAdded }: AddDeviceDialogProps)
             <Button
               type="button"
               variant="outline"
-              onClick={() => setOpen(false)}
+              onClick={() => handleOpenChange(false)}
             >
               Cancel
             </Button>
@@ -199,4 +257,3 @@ export function AddDeviceDialog({ groups, onDeviceAdded }: AddDeviceDialogProps)
     </Dialog>
   )
 }
-

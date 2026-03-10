@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react"
 import Link from "next/link"
-import { Eye, Search } from "lucide-react"
+import { Eye, Search, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -13,8 +13,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
-import { Device as DBDevice } from "@/lib/types/database"
+import { Device as DBDevice, UnknownDevice } from "@/lib/types/database"
 import { AddDeviceDialog } from "./add-device-dialog"
+import { AddGroupDialog } from "./add-group-dialog"
 import { LiveStreamDialog } from "./live-stream-dialog"
 
 interface Device {
@@ -47,10 +48,26 @@ export function DeviceList() {
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
   const [groupFilter, setGroupFilter] = useState<string>("all")
+  const [unknownDevices, setUnknownDevices] = useState<UnknownDevice[]>([])
+  const [unknownDevicesLoading, setUnknownDevicesLoading] = useState(true)
+  const [unknownDialogOpen, setUnknownDialogOpen] = useState(false)
+  const [selectedUnknownDevice, setSelectedUnknownDevice] = useState<UnknownDevice | null>(null)
 
   useEffect(() => {
     fetchDevices()
     fetchGroups()
+    fetchUnknownDevices()
+
+    const channel = supabase
+      .channel('mvr_unknown_devices_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mvr_unknown_devices' }, () => {
+        fetchUnknownDevices()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   async function fetchDevices() {
@@ -144,6 +161,30 @@ export function DeviceList() {
     }
   }
 
+  async function fetchUnknownDevices() {
+    try {
+      setUnknownDevicesLoading(true)
+      console.log("DEBUG::DeviceList", "Starting to fetch unknown devices...")
+
+      const { data, error } = await supabase
+        .from('mvr_unknown_devices')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        console.log("DEBUG::DeviceList", "Error fetching unknown devices:", error)
+        throw error
+      }
+
+      console.log("DEBUG::DeviceList", `Received ${data?.length || 0} unknown devices from database`)
+      setUnknownDevices(data || [])
+    } catch (err: any) {
+      console.log("DEBUG::DeviceList", "Error fetching unknown devices:", err)
+    } finally {
+      setUnknownDevicesLoading(false)
+    }
+  }
+
   const filteredDevices = useMemo(() => {
     console.log("DEBUG::DeviceList", "Filtering devices:", {
       totalDevices: devices.length,
@@ -170,7 +211,8 @@ export function DeviceList() {
 
   return (
     <div className="w-full">
-      <div className="mb-6 flex justify-end">
+      <div className="mb-6 flex justify-end gap-3">
+        <AddGroupDialog onGroupAdded={fetchGroups} />
         <AddDeviceDialog groups={groups} onDeviceAdded={fetchDevices} />
       </div>
 
@@ -302,6 +344,72 @@ export function DeviceList() {
         ))}
         </div>
       )}
+
+      {!unknownDevicesLoading && unknownDevices.length > 0 && (
+        <div className="mt-10">
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-lg font-semibold text-gray-900">Unknown Devices</h2>
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
+              {unknownDevices.length}
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 mb-4">
+            These devices were detected on the network but have not yet been registered. Add them to your dashboard to start monitoring.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {unknownDevices.map((device) => (
+              <div
+                key={device.id}
+                className="bg-amber-50/80 border border-amber-200 rounded-lg shadow-sm flex flex-col"
+              >
+                <div className="p-6 flex-1">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-800 mb-1">
+                        {device.serial || 'Unknown Serial'}
+                      </p>
+                      {device.device_model && (
+                        <p className="text-sm text-gray-500">{device.device_model}</p>
+                      )}
+                    </div>
+                    <span className="text-xs font-medium px-2.5 py-1 rounded-full border bg-amber-100 text-amber-700 border-amber-200 flex-shrink-0 ml-3">
+                      Unknown
+                    </span>
+                  </div>
+                </div>
+                <div className="border-t border-amber-200 p-4 bg-amber-50 rounded-b-lg">
+                  <Button
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-white"
+                    onClick={() => {
+                      setSelectedUnknownDevice(device)
+                      setUnknownDialogOpen(true)
+                    }}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add to Devices
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <AddDeviceDialog
+        groups={groups}
+        onDeviceAdded={fetchDevices}
+        prefillData={selectedUnknownDevice ? {
+          serial: selectedUnknownDevice.serial || '',
+          device_model: selectedUnknownDevice.device_model || '',
+        } : undefined}
+        unknownDeviceId={selectedUnknownDevice?.id}
+        onUnknownDeviceLinked={fetchUnknownDevices}
+        open={unknownDialogOpen}
+        onOpenChange={(open) => {
+          setUnknownDialogOpen(open)
+          if (!open) setSelectedUnknownDevice(null)
+        }}
+      />
     </div>
   )
 }

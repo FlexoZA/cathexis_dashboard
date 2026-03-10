@@ -58,6 +58,26 @@ export interface Database {
           description?: string | null
         }
       }
+      mvr_unknown_devices: {
+        Row: {
+          id: number
+          created_at: string
+          serial: string | null
+          device_model: string | null
+        }
+        Insert: {
+          id?: number
+          created_at?: string
+          serial?: string | null
+          device_model?: string | null
+        }
+        Update: {
+          id?: number
+          created_at?: string
+          serial?: string | null
+          device_model?: string | null
+        }
+      }
     }
   }
 }
@@ -73,4 +93,7 @@ export type DeviceUpdate = Database['public']['Tables']['mvr_devices']['Update']
 export type Group = Database['public']['Tables']['mvr_device_groups']['Row']
 export type GroupInsert = Database['public']['Tables']['mvr_device_groups']['Insert']
 export type GroupUpdate = Database['public']['Tables']['mvr_device_groups']['Update']
+
+export type UnknownDevice = Database['public']['Tables']['mvr_unknown_devices']['Row']
+export type UnknownDeviceInsert = Database['public']['Tables']['mvr_unknown_devices']['Insert']
 
