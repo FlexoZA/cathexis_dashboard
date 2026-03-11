@@ -68,6 +68,7 @@ export function AddDeviceDialog({
     friendly_name: "",
     device_model: "",
     group_id: "none",
+    protocol: "none",
   })
 
   useEffect(() => {
@@ -77,6 +78,7 @@ export function AddDeviceDialog({
         friendly_name: prefillData.friendly_name || "",
         device_model: prefillData.device_model || "",
         group_id: "none",
+        protocol: "none",
       })
     }
   }, [dialogOpen, prefillData])
@@ -110,6 +112,7 @@ export function AddDeviceDialog({
         serial: formData.serial || null,
         friendly_name: formData.friendly_name || null,
         device_model: formData.device_model || null,
+        protocol: formData.protocol !== "none" ? formData.protocol : null,
         client_id: user.id ? parseInt(user.id) : null,
         status: "offline" as const,
         group_id: formData.group_id !== "none" ? parseInt(formData.group_id) : null,
@@ -146,6 +149,7 @@ export function AddDeviceDialog({
         friendly_name: "",
         device_model: "",
         group_id: "none",
+        protocol: "none",
       })
 
       handleOpenChange(false)
@@ -202,12 +206,36 @@ export function AddDeviceDialog({
 
             <div className="grid gap-2">
               <Label htmlFor="device_model">Device Model</Label>
-              <Input
-                id="device_model"
-                type="text"
-                value={formData.device_model}
-                onChange={(e) => setFormData({ ...formData, device_model: e.target.value })}
-              />
+              <Select
+                value={formData.device_model || "none"}
+                onValueChange={(value) => setFormData({ ...formData, device_model: value === "none" ? "" : value })}
+              >
+                <SelectTrigger id="device_model">
+                  <SelectValue placeholder="Select a model" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Model</SelectItem>
+                  <SelectItem value="MRV5">MRV5</SelectItem>
+                  <SelectItem value="N62">N62</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="protocol">Protocol</Label>
+              <Select
+                value={formData.protocol}
+                onValueChange={(value) => setFormData({ ...formData, protocol: value })}
+              >
+                <SelectTrigger id="protocol">
+                  <SelectValue placeholder="Select a protocol" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No Protocol</SelectItem>
+                  <SelectItem value="jt808">JT808</SelectItem>
+                  <SelectItem value="mvr5">MVR5</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="grid gap-2">
