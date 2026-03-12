@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo, useEffect, useRef } from "react"
 import Link from "next/link"
 import { Eye, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -13,12 +13,13 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { supabase } from "@/lib/supabase"
-import { Device as DBDevice, UnknownDevice } from "@/lib/types/database"
+import { UnknownDevice } from "@/lib/types/database"
 import { AddDeviceDialog } from "./add-device-dialog"
 import { AddGroupDialog } from "./add-group-dialog"
 import { LiveStreamDialog } from "./live-stream-dialog"
 import { UnknownDevicesSidebar } from "./unknown-devices-sidebar"
 import { NotificationsSidebar } from "./notifications-sidebar"
+import { useNotifications } from "./notifications-provider"
 
 interface Device {
   id: number
@@ -43,6 +44,7 @@ interface Group {
 }
 
 export function DeviceList() {
+  const { addNotification } = useNotifications()
   const [devices, setDevices] = useState<Device[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(true)
@@ -55,21 +57,31 @@ export function DeviceList() {
   const [unknownDialogOpen, setUnknownDialogOpen] = useState(false)
   const [selectedUnknownDevice, setSelectedUnknownDevice] = useState<UnknownDevice | null>(null)
   const [rejectingUnknownDeviceId, setRejectingUnknownDeviceId] = useState<number | null>(null)
+  const hasFetchedDevicesRef = useRef(false)
+  const previousDeviceStatusRef = useRef<Record<number, Device["status"]>>({})
 
   useEffect(() => {
     fetchDevices()
     fetchGroups()
     fetchUnknownDevices()
 
-    const channel = supabase
+    const unknownDevicesChannel = supabase
       .channel('mvr_unknown_devices_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mvr_unknown_devices' }, () => {
         fetchUnknownDevices()
       })
       .subscribe()
 
+    const devicesChannel = supabase
+      .channel('mvr_devices_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'mvr_devices' }, () => {
+        fetchDevices()
+      })
+      .subscribe()
+
     return () => {
-      supabase.removeChannel(channel)
+      supabase.removeChannel(unknownDevicesChannel)
+      supabase.removeChannel(devicesChannel)
     }
   }, [])
 
@@ -97,30 +109,16 @@ export function DeviceList() {
 
       console.log("DEBUG::DeviceList", `Received ${data?.length || 0} devices from database`)
 
-      let onlineUnits: string[] = []
-
-      try {
-        const gatewayResponse = await fetch("/api/units", {
-          cache: "no-store",
-        })
-
-        if (!gatewayResponse.ok) {
-          throw new Error(`Gateway returned ${gatewayResponse.status}`)
-        }
-
-        const gatewayData = await gatewayResponse.json()
-        onlineUnits = Array.isArray(gatewayData.units)
-          ? gatewayData.units.map((unit: any) => String(unit))
-          : []
-
-        console.log("DEBUG::DeviceList", "Gateway online units:", onlineUnits)
-      } catch (gatewayError) {
-        console.log("DEBUG::DeviceList", "Error fetching gateway units:", gatewayError)
-      }
-
       const mappedDevices: Device[] = (data || []).map((device: any) => {
         const serial = device.serial || ''
-        const isOnline = onlineUnits.includes(serial)
+        const rawStatus = device.status
+        const status =
+          rawStatus === 'online' ||
+          rawStatus === 'offline' ||
+          rawStatus === 'warning' ||
+          rawStatus === 'maintenance'
+            ? rawStatus
+            : 'offline'
 
         return {
           id: device.id,
@@ -128,10 +126,29 @@ export function DeviceList() {
           device_serial: serial || 'N/A',
           device_model: device.device_model || null,
           protocol: device.protocol || null,
-          status: isOnline ? 'online' : 'offline',
+          status,
           group_name: device.mvr_device_groups?.name || null,
         }
       })
+
+      if (hasFetchedDevicesRef.current) {
+        mappedDevices.forEach((device) => {
+          const previousStatus = previousDeviceStatusRef.current[device.id]
+          const statusChanged = previousStatus !== undefined && previousStatus !== device.status
+          const isOnlineOfflineEvent = device.status === "online" || device.status === "offline"
+
+          if (statusChanged && isOnlineOfflineEvent) {
+            const stateLabel = device.status === "online" ? "online" : "offline"
+            addNotification("Device Status Update", `${device.device_friendly_name} is now ${stateLabel}.`)
+          }
+        })
+      }
+
+      previousDeviceStatusRef.current = mappedDevices.reduce<Record<number, Device["status"]>>((acc, device) => {
+        acc[device.id] = device.status
+        return acc
+      }, {})
+      hasFetchedDevicesRef.current = true
 
       console.log("DEBUG::DeviceList", "Mapped devices:", mappedDevices)
       setDevices(mappedDevices)

@@ -4,6 +4,7 @@ import "./globals.css"
 import { Header } from "@/components/header"
 import { Footer } from "@/components/footer"
 import { AuthProvider } from "@/components/auth-provider"
+import { NotificationsProvider } from "@/components/notifications-provider"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -21,11 +22,13 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.className} flex flex-col min-h-screen`}>
         <AuthProvider>
-          <Header />
-          <main className="flex-1">
-            {children}
-          </main>
-          <Footer />
+          <NotificationsProvider>
+            <Header />
+            <main className="flex-1">
+              {children}
+            </main>
+            <Footer />
+          </NotificationsProvider>
         </AuthProvider>
       </body>
     </html>
