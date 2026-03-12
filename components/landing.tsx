@@ -29,10 +29,8 @@ export function Landing() {
   console.log("DEBUG::Landing", "User authenticated, showing device list")
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-200 to-gray-300">
-      <div className="w-full max-w-7xl mx-auto px-4 py-12">
-        <DeviceList />
-      </div>
+    <div className="min-h-full">
+      <DeviceList />
     </div>
   )
 }

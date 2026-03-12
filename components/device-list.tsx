@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from "react"
 import Link from "next/link"
-import { Eye, Search, Plus } from "lucide-react"
+import { Eye, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -17,6 +17,8 @@ import { Device as DBDevice, UnknownDevice } from "@/lib/types/database"
 import { AddDeviceDialog } from "./add-device-dialog"
 import { AddGroupDialog } from "./add-group-dialog"
 import { LiveStreamDialog } from "./live-stream-dialog"
+import { UnknownDevicesSidebar } from "./unknown-devices-sidebar"
+import { NotificationsSidebar } from "./notifications-sidebar"
 
 interface Device {
   id: number
@@ -52,6 +54,7 @@ export function DeviceList() {
   const [unknownDevicesLoading, setUnknownDevicesLoading] = useState(true)
   const [unknownDialogOpen, setUnknownDialogOpen] = useState(false)
   const [selectedUnknownDevice, setSelectedUnknownDevice] = useState<UnknownDevice | null>(null)
+  const [rejectingUnknownDeviceId, setRejectingUnknownDeviceId] = useState<number | null>(null)
 
   useEffect(() => {
     fetchDevices()
@@ -210,190 +213,180 @@ export function DeviceList() {
   }, [devices, searchTerm, statusFilter, groupFilter])
 
   return (
-    <div className="w-full">
-      <div className="mb-6 flex justify-end gap-3">
-        <AddGroupDialog onGroupAdded={fetchGroups} />
-        <AddDeviceDialog groups={groups} onDeviceAdded={fetchDevices} />
-      </div>
+    <div className="w-full px-4 py-6 lg:pl-[360px] lg:pr-[360px]">
+      <UnknownDevicesSidebar
+        unknownDevices={unknownDevices}
+        unknownDevicesLoading={unknownDevicesLoading}
+        onAddDevice={(device) => {
+          setSelectedUnknownDevice(device)
+          setUnknownDialogOpen(true)
+        }}
+        onRejectDevice={async (device) => {
+          try {
+            setRejectingUnknownDeviceId(device.id)
+            console.log("DEBUG::DeviceList", "Rejecting unknown device:", device.id)
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-            <Input
-              type="text"
-              placeholder="Search devices..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
+            const { error: deleteError } = await supabase
+              .from("mvr_unknown_devices")
+              .delete()
+              .eq("id", device.id)
+
+            if (deleteError) {
+              throw deleteError
+            }
+
+            if (selectedUnknownDevice?.id === device.id) {
+              setUnknownDialogOpen(false)
+              setSelectedUnknownDevice(null)
+            }
+
+            await fetchUnknownDevices()
+          } catch (rejectError) {
+            console.log("DEBUG::DeviceList", "Error rejecting unknown device:", rejectError)
+          } finally {
+            setRejectingUnknownDeviceId(null)
+          }
+        }}
+        rejectingDeviceId={rejectingUnknownDeviceId}
+      />
+
+      <NotificationsSidebar />
+
+      <section className="min-w-0 max-w-7xl mx-auto">
+          <div className="mb-6 flex justify-end gap-3">
+            <AddGroupDialog onGroupAdded={fetchGroups} />
+            <AddDeviceDialog groups={groups} onDeviceAdded={fetchDevices} />
           </div>
-          <div className="sm:w-48">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="All Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="online">Online</SelectItem>
-                <SelectItem value="offline">Offline</SelectItem>
-                <SelectItem value="warning">Warning</SelectItem>
-                <SelectItem value="maintenance">Maintenance</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="sm:w-48">
-            <Select value={groupFilter} onValueChange={setGroupFilter}>
-              <SelectTrigger>
-                <SelectValue placeholder="All Groups" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Groups</SelectItem>
-                {groups.map((group) => (
-                  <SelectItem key={group.id} value={group.name}>
-                    {group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </div>
 
-      {loading && (
-        <div className="text-center py-12">
-          <p className="text-gray-600">Loading devices...</p>
-        </div>
-      )}
-
-      {error && (
-        <div className="text-center py-12">
-          <p className="text-destructive">{error}</p>
-          <Button 
-            onClick={fetchDevices}
-            className="mt-4"
-          >
-            Retry
-          </Button>
-        </div>
-      )}
-
-      {!loading && !error && filteredDevices.length === 0 && (
-        <div className="text-center py-12">
-          <p className="text-gray-600">No devices found</p>
-        </div>
-      )}
-      
-      {!loading && !error && filteredDevices.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredDevices.map((device) => (
-          <div
-            key={device.id}
-            className="bg-white/80 border border-gray-300 rounded-lg shadow-sm hover:shadow-md transition-all flex flex-col"
-          >
-            <div className="p-6 flex-1">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex-1">
-                  <h3 className="text-base font-semibold text-gray-900 mb-1">
-                    {device.device_friendly_name}
-                  </h3>
-                  <p className="text-sm text-gray-600 mb-2">
-                    {device.device_serial}
-                  </p>
-                  {device.group_name && (
-                    <span className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full border bg-gray-500/10 text-gray-700 border-gray-500/20">
-                      {device.group_name}
-                    </span>
-                  )}
-                </div>
-                <span
-                  className={`text-xs font-medium px-2.5 py-1 rounded-full border flex-shrink-0 ml-3 h-fit ${
-                    statusConfig[device.status].color
-                  }`}
-                >
-                  {statusConfig[device.status].label}
-                </span>
-              </div>
-            </div>
-            <div className="border-t border-gray-200 p-4 bg-gray-50/50 rounded-b-lg">
-              <div className="flex gap-2">
-                {device.status === 'offline' ? (
-                  <Button variant="outline" className="flex-1" disabled>
-                    <Eye className="w-4 h-4" />
-                    View
-                  </Button>
-                ) : (
-                  <Button variant="outline" className="flex-1" asChild>
-                    <Link href={`/device/${device.id}`}>
-                      <Eye className="w-4 h-4" />
-                      View
-                    </Link>
-                  </Button>
-                )}
-                
-                <LiveStreamDialog 
-                  serial={device.device_serial}
-                  deviceName={device.device_friendly_name}
-                  deviceModel={device.device_model}
-                  protocol={device.protocol}
-                  disabled={device.status === 'offline'}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                <Input
+                  type="text"
+                  placeholder="Search devices..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
                 />
               </div>
+              <div className="sm:w-48">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="online">Online</SelectItem>
+                    <SelectItem value="offline">Offline</SelectItem>
+                    <SelectItem value="warning">Warning</SelectItem>
+                    <SelectItem value="maintenance">Maintenance</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="sm:w-48">
+                <Select value={groupFilter} onValueChange={setGroupFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Groups" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Groups</SelectItem>
+                    {groups.map((group) => (
+                      <SelectItem key={group.id} value={group.name}>
+                        {group.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
-        ))}
-        </div>
-      )}
 
-      {!unknownDevicesLoading && unknownDevices.length > 0 && (
-        <div className="mt-10">
-          <div className="flex items-center gap-3 mb-4">
-            <h2 className="text-lg font-semibold text-gray-900">Unknown Devices</h2>
-            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200">
-              {unknownDevices.length}
-            </span>
-          </div>
-          <p className="text-sm text-gray-500 mb-4">
-            These devices were detected on the network but have not yet been registered. Add them to your dashboard to start monitoring.
-          </p>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {unknownDevices.map((device) => (
+          {loading && (
+            <div className="text-center py-12">
+              <p className="text-gray-600">Loading devices...</p>
+            </div>
+          )}
+
+          {error && (
+            <div className="text-center py-12">
+              <p className="text-destructive">{error}</p>
+              <Button
+                onClick={fetchDevices}
+                className="mt-4"
+              >
+                Retry
+              </Button>
+            </div>
+          )}
+
+          {!loading && !error && filteredDevices.length === 0 && (
+            <div className="text-center py-12">
+              <p className="text-gray-600">No devices found</p>
+            </div>
+          )}
+
+          {!loading && !error && filteredDevices.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {filteredDevices.map((device) => (
               <div
                 key={device.id}
-                className="bg-amber-50/80 border border-amber-200 rounded-lg shadow-sm flex flex-col"
+                className="bg-white border border-gray-300 rounded-lg shadow-sm hover:shadow-md transition-all flex flex-col"
               >
                 <div className="p-6 flex-1">
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-800 mb-1">
-                        {device.serial || 'Unknown Serial'}
+                      <h3 className="text-base font-semibold text-gray-900 mb-1">
+                        {device.device_friendly_name}
+                      </h3>
+                      <p className="text-sm text-gray-600 mb-2">
+                        {device.device_serial}
                       </p>
-                      {device.device_model && (
-                        <p className="text-sm text-gray-500">{device.device_model}</p>
+                      {device.group_name && (
+                        <span className="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full border bg-gray-500/10 text-gray-700 border-gray-500/20">
+                          {device.group_name}
+                        </span>
                       )}
                     </div>
-                    <span className="text-xs font-medium px-2.5 py-1 rounded-full border bg-amber-100 text-amber-700 border-amber-200 flex-shrink-0 ml-3">
-                      Unknown
+                    <span
+                      className={`text-xs font-medium px-2.5 py-1 rounded-full border flex-shrink-0 ml-3 h-fit ${
+                        statusConfig[device.status].color
+                      }`}
+                    >
+                      {statusConfig[device.status].label}
                     </span>
                   </div>
                 </div>
-                <div className="border-t border-amber-200 p-4 bg-amber-50 rounded-b-lg">
-                  <Button
-                    className="w-full bg-amber-500 hover:bg-amber-600 text-white"
-                    onClick={() => {
-                      setSelectedUnknownDevice(device)
-                      setUnknownDialogOpen(true)
-                    }}
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add to Devices
-                  </Button>
+                <div className="border-t border-gray-200 p-4 bg-white rounded-b-lg">
+                  <div className="flex gap-2">
+                    {device.status === 'offline' ? (
+                      <Button variant="outline" className="flex-1" disabled>
+                        <Eye className="w-4 h-4" />
+                        View
+                      </Button>
+                    ) : (
+                      <Button variant="outline" className="flex-1" asChild>
+                        <Link href={`/device/${device.id}`}>
+                          <Eye className="w-4 h-4" />
+                          View
+                        </Link>
+                      </Button>
+                    )}
+
+                    <LiveStreamDialog
+                      serial={device.device_serial}
+                      deviceName={device.device_friendly_name}
+                      deviceModel={device.device_model}
+                      protocol={device.protocol}
+                      disabled={device.status === 'offline'}
+                    />
+                  </div>
                 </div>
               </div>
             ))}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
+      </section>
 
       <AddDeviceDialog
         groups={groups}
