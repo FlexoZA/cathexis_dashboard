@@ -232,8 +232,8 @@ export function AddDeviceDialog({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">No Protocol</SelectItem>
-                  <SelectItem value="jt808">JT808</SelectItem>
-                  <SelectItem value="mvr5">MVR5</SelectItem>
+                  <SelectItem value="jt808_19">JT808_19</SelectItem>
+                  <SelectItem value="cathexis">Cathexis</SelectItem>
                 </SelectContent>
               </Select>
             </div>
