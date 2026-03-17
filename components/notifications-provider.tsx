@@ -40,7 +40,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     timeoutIdsRef.current[id] = setTimeout(() => {
       setNotifications((current) => current.filter((notification) => notification.id !== id))
       delete timeoutIdsRef.current[id]
-    }, 50000)
+    }, 500000)
   }
 
   const value = useMemo(

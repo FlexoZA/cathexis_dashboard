@@ -61,13 +61,25 @@ export function DeviceList() {
   const previousDeviceStatusRef = useRef<Record<number, Device["status"]>>({})
 
   useEffect(() => {
+    console.log("DEBUG::DeviceList", { supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL, env: process.env.ENV, nodeEnv: process.env.NODE_ENV })
     fetchDevices()
     fetchGroups()
     fetchUnknownDevices()
 
     const unknownDevicesChannel = supabase
       .channel('mvr_unknown_devices_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'mvr_unknown_devices' }, () => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'mvr_unknown_devices' }, (payload) => {
+        const newDevice = payload.new as UnknownDevice
+        addNotification(
+          "Device Approval Request",
+          `${newDevice.serial || "Unknown serial"} wants to connect.`
+        )
+        fetchUnknownDevices()
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'mvr_unknown_devices' }, () => {
+        fetchUnknownDevices()
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'mvr_unknown_devices' }, () => {
         fetchUnknownDevices()
       })
       .subscribe()

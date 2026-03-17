@@ -44,6 +44,7 @@ export async function POST(
     const base = BACKEND_BASE_URL.replace(/\/$/, '')
     const commandUrl = `${base}/api/units/${encodeURIComponent(serial)}/command`
     const sdHealthUrl = `${base}/api/units/${encodeURIComponent(serial)}/sd-health`
+    const basicStatusUrl = `${base}/api/units/${encodeURIComponent(serial)}/basic-status`
     const authHeaders = { Authorization: `Bearer ${API_KEY}` }
 
     console.log('DEBUG::N62BatchAPI', {
@@ -71,6 +72,26 @@ export async function POST(
               }
             }
             // Merge stale/age_ms into data so the view can access them uniformly
+            const merged = json?.data
+              ? { ...json.data, stale: json.stale, age_ms: json.age_ms }
+              : null
+            return { key: cmd.key, ok: true, data: merged, error: null }
+          }
+
+          if (cmd.type === 'basic_status') {
+            const res = await fetch(basicStatusUrl, {
+              headers: authHeaders,
+              cache: 'no-store',
+            })
+            const json = await res.json().catch(() => null)
+            if (!res.ok) {
+              return {
+                key: cmd.key,
+                ok: false,
+                data: null,
+                error: json?.error ?? `Basic status failed (${res.status})`,
+              }
+            }
             const merged = json?.data
               ? { ...json.data, stale: json.stale, age_ms: json.age_ms }
               : null

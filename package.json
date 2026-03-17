@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:staging": "ENV=staging next dev",
+    "dev:production": "ENV=production next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"

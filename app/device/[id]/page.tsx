@@ -1060,7 +1060,7 @@ export default function DevicePage() {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
               <Settings className="w-5 h-5 mr-2" />
-              Device Information
+              Server Device Information
             </h2>
             <div className="space-y-4">
               <div>

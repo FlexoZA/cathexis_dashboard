@@ -12,7 +12,6 @@ Sources:
 - Device: N62 (JT/T 808)
 - Transport: TCP on `JT808_LISTEN_PORT` (default `6608`)
 - API for commands: `POST /api/units/:serial/command`
-- Dashboard resolver key: `mvr_devices.protocol = jt808`
 - Serial format: `JT808_<terminalPhoneDigits>`
   - Example: `JT808_100000000327`
 
@@ -670,10 +669,186 @@ Example response shape:
 }
 ```
 
+### 4b) Basic status (JT808-only endpoint path)
+- **Transport source**: JT808 `0x0900` transparent uplink (`ULV`), currently parsed from `0xF1` payloads.
+- **Request model**: push + cache. The endpoint returns the latest cached snapshot from telemetry.
+- **API endpoint**: `GET /api/units/:serial/basic-status`
+- **Current fields**:
+  - `cpu_temp_c` (decoded from ULV temperature word; Table 3.10.6 formula `(raw - 400) / 10`)
+  - `network_signal`
+  - `satellites`
+- **Notes**:
+  - If no suitable transparent telemetry has been received yet, endpoint returns `503`.
+  - Response includes `stale` and `age_ms`.
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  http://localhost:9000/api/units/JT808_100000000327/basic-status
+```
+
+Example response shape:
+```json
+{
+  "ok": true,
+  "serial": "JT808_100000000327",
+  "data": {
+    "source": "jt808_0x0900_ulv_f1",
+    "pass_through_type": 241,
+    "cpu_temp_c": 72.1,
+    "raw_temp": 1121,
+    "network_signal": 81,
+    "satellites": 9
+  },
+  "receivedAt": "2026-03-17T10:44:56.120Z",
+  "stale": false,
+  "age_ms": 430
+}
+```
+
+## Saved clip retrieval
+
+### 5) Query available recordings
+- **API endpoint**: `GET /api/units/:serial/recordings`
+- **Works for all device protocols** — behaviour differs by protocol:
+  - **JT808/N62**: sends `0x9205` resource list query to the device and returns on-device recordings
+  - **Cathexis/MVR5**: queries stored clips from the database (no device round-trip)
+- **Notes**:
+  - Default window: last 24 hours; override with `start_utc` / `end_utc`
+  - Optional filters: `camera` (0-based), `stream_type` (0=all, 1=main, 2=sub)
+  - JT808 only: `resource_type` filter (0=audio+video, 1=audio, 2=video)
+  - Returns one entry per contiguous recording segment with start/end times and file size
+  - Use this to populate a frontend timeline before requesting a clip
+
+```bash
+# All cameras, last 24 hours
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "http://185.202.223.35:9000/api/units/JT808_100000000327/recordings"
+
+# Camera 0, specific time window
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "http://185.202.223.35:9000/api/units/JT808_100000000327/recordings?camera=0&start_utc=1741478400&end_utc=1741564800"
+
+# Video-only recordings (JT808 resource_type filter)
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "http://185.202.223.35:9000/api/units/JT808_100000000327/recordings?resource_type=2"
+```
+
+JT808 example response:
+```json
+{
+  "ok": true,
+  "serial": "JT808_100000000327",
+  "protocol": "jt808_19",
+  "total": 3,
+  "recordings": [
+    {
+      "channel": 1,
+      "camera": 0,
+      "start_utc": 1741520000,
+      "end_utc": 1741520600,
+      "start_time": "2026-03-09T10:13:20.000Z",
+      "end_time": "2026-03-09T10:23:20.000Z",
+      "duration_seconds": 600,
+      "alarm_sign": 0,
+      "resource_type": "audio_video",
+      "stream_type": "main",
+      "memory_type": "all",
+      "file_size": 52428800
+    }
+  ]
+}
+```
+
+Cathexis/database example response:
+```json
+{
+  "ok": true,
+  "serial": "MVR5452_6111434",
+  "protocol": "cathexis",
+  "total": 2,
+  "recordings": [
+    {
+      "id": 42,
+      "camera": 0,
+      "profile": 0,
+      "start_utc": 1741520000,
+      "end_utc": 1741520300,
+      "start_time": "2026-03-09T10:13:20.000Z",
+      "end_time": "2026-03-09T10:18:20.000Z",
+      "duration_seconds": 300,
+      "file_size": 26214400,
+      "status": "ready",
+      "download_url": "https://...",
+      "download_url_expires_at": "2026-03-12T10:13:20.000Z",
+      "created_at": "2026-03-09T10:13:25.000Z"
+    }
+  ]
+}
+```
+
+### 7) Request saved clip (0x9201 playback)
+- **Request**: `0x9201` audio/video playback request
+- **Response**: device ACKs then streams footage to our server
+- **API endpoint**: `POST /api/units/:serial/clips/request`
+- **Notes**:
+  - `camera` = 0-based channel index (0=Ch1, 1=Ch2, …)
+  - `profile` = 0 (main stream) or 1 (sub stream)
+  - Duration must be between 5 and 300 seconds
+  - Returns `clip_id` immediately; poll `/clips/status` until `status: "ready"`
+  - Processing time varies by clip duration and network speed
+
+```bash
+curl -X POST http://185.202.223.35:9000/api/units/JT808_100000000327/clips/request \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "camera": 0,
+    "profile": 0,
+    "start_utc": 1741564800,
+    "end_utc": 1741564860
+  }'
+```
+
+Example response:
+```json
+{
+  "ok": true,
+  "message": "Playback request sent to device (0x9201). Device will stream saved footage to server.",
+  "serial": "JT808_100000000327",
+  "camera": 0,
+  "profile": 0,
+  "start_utc": 1741564800,
+  "end_utc": 1741564860,
+  "duration": 60,
+  "clip_id": "abc123",
+  "check_status_url": "/api/units/JT808_100000000327/clips/status?start_utc=1741564800&end_utc=1741564860&camera=0"
+}
+```
+
+### 8) Poll clip status
+- **API endpoint**: `GET /api/units/:serial/clips/status`
+- **Statuses**: `processing` → `receiving` → `uploading` → `ready` (or `error`)
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "http://185.202.223.35:9000/api/units/JT808_100000000327/clips/status?start_utc=1741564800&end_utc=1741564860&camera=0"
+```
+
+### 9) Stop playback early (optional)
+- **Request**: `0x9202` playback control (End)
+- **API type**: `stop_playback`
+
+```bash
+curl -X POST http://185.202.223.35:9000/api/units/JT808_100000000327/command \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"type": "stop_playback", "payload": {"camera": 0}}'
+```
+
 ## Live data streaming (video)
 This is a data-only flow (no device updates). It returns live video via HLS.
 
-### 5) Start live stream
+### 10) Start live stream
 - **Request**: `0x9101` real-time video/audio request
 - **Response**: ULV-framed RTP/PS packets on the stream socket
 - **API**: `POST /api/units/:serial/stream/start`
@@ -690,7 +865,7 @@ HLS playback URL:
 http://localhost:9000/hls/JT808_100000000327/0/1/stream.m3u8
 ```
 
-### 6) Stop live stream
+### 11) Stop live stream
 - **Request**: `0x9102` stop real-time video/audio
 - **API**: `POST /api/units/:serial/stream/stop`
 
@@ -713,34 +888,7 @@ Most command responses follow this shape:
 }
 ```
 
-## Commissioning write/update support
-The commissioning tool now supports N62 write flows through `update_config` using section-scoped payloads.
-
-### 7) Update configuration (ULV Set)
-- **Request**: `0xB050` with `CmdType = "Set"`
-- **Response**: `0xB051` parameter response (JSON payload)
-- **API type**: `update_config`
-
-Example (update one ParamType section):
-```bash
-curl -X POST http://localhost:9000/api/units/JT808_100000000327/command \
-  -H "Authorization: Bearer YOUR_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "type": "update_config",
-    "payload": {
-      "VehBaseInfo": {
-        "ParamType": "VehBaseInfo",
-        "DriverName": "Commissioning Driver"
-      }
-    }
-  }'
-```
-
-Notes:
-- Send only changed sections where possible.
-- The unit may reboot after successful updates, depending on firmware behavior.
-- Keep write payloads aligned with the latest read shape returned by `request_config`.
-
-## Still excluded from this mapping
+## Out of scope (write/update)
+These are explicitly **excluded** for now:
+- `update_config` (ULV Set)
 - `reboot_unit` (JT808 control)

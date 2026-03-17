@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import {
   Cpu, Wifi, Signal, HardDrive, Car, Clock, Navigation,
-  Video, Server, RefreshCw, Loader2, Radio, Pencil, Check, X,
+  Server, RefreshCw, Loader2, Radio, Check, X,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -147,6 +147,7 @@ const N62_BATCH_COMMANDS: BatchCommand[] = [
   { key: "net4g",    type: "request_config", payload: { paramType: "NetXg" } },
   { key: "netWifi",  type: "request_config", payload: { paramType: "NetWifi" } },
   { key: "netCms",   type: "request_config", payload: { paramType: "NetCms" } },
+  { key: "basicStatus", type: "basic_status" },
   { key: "recAttr",  type: "request_config", payload: { paramType: "RecAttr" } },
   { key: "sdHealth", type: "sd_health" },
   { key: "termAttr", type: "request_environment" },
@@ -235,6 +236,7 @@ function EditActions({ onSave, onCancel, saving, error }: {
   )
 }
 
+
 function SectionCard({ title, icon: Icon, state, onRefresh, headerAction, children }: {
   title: string
   icon: React.ElementType
@@ -277,14 +279,6 @@ function SectionCard({ title, icon: Icon, state, onRefresh, headerAction, childr
   )
 }
 
-function EditPencil({ onClick }: { onClick: () => void }) {
-  return (
-    <Button variant="ghost" size="sm" onClick={onClick} className="h-7 w-7 p-0" title="Edit">
-      <Pencil className="w-3.5 h-3.5" />
-    </Button>
-  )
-}
-
 // ─── Display helpers ──────────────────────────────────────────────────────────
 
 function enabledDisabled(val: unknown): string {
@@ -311,6 +305,7 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
   const [net4g,    setNet4g]    = useState<DataState>({ ...INIT_STATE })
   const [netWifi,  setNetWifi]  = useState<DataState>({ ...INIT_STATE })
   const [netCms,   setNetCms]   = useState<DataState>({ ...INIT_STATE })
+  const [basicStatus, setBasicStatus] = useState<DataState>({ ...INIT_STATE })
   const [recAttr,  setRecAttr]  = useState<DataState>({ ...INIT_STATE })
   const [sdHealth, setSdHealth] = useState<DataState>({ ...INIT_STATE })
   const [termAttr, setTermAttr] = useState<DataState>({ ...INIT_STATE })
@@ -531,7 +526,7 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
 
   // ── batch load / refresh all ──
   const runBatch = useCallback((sig?: AbortSignal) => {
-    const setters = [setDevInfo, setSysTime, setVehBase, setVehPos, setNet4g, setNetWifi, setNetCms, setRecAttr, setSdHealth, setTermAttr]
+    const setters = [setDevInfo, setSysTime, setVehBase, setVehPos, setNet4g, setNetWifi, setNetCms, setBasicStatus, setRecAttr, setSdHealth, setTermAttr]
     setters.forEach((s) => startLoading(s))
     fetchBatch(serial, N62_BATCH_COMMANDS, sig).then((results) => {
       // Signal aborted means the effect cleaned up (e.g. React StrictMode remount).
@@ -544,6 +539,7 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
       settled(setNet4g,    results.net4g)
       settled(setNetWifi,  results.netWifi)
       settled(setNetCms,   results.netCms)
+      settled(setBasicStatus, results.basicStatus)
       settled(setRecAttr,  results.recAttr)
       settled(setSdHealth, results.sdHealth)
       settled(setTermAttr, results.termAttr)
@@ -563,7 +559,7 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
     return () => controller.abort()
   }, [serial, runBatch])
 
-  const allLoading = [devInfo, sysTime, vehBase, vehPos, net4g, netWifi, netCms, recAttr, sdHealth, termAttr].some((s) => s.loading)
+  const allLoading = [devInfo, sysTime, vehBase, vehPos, net4g, netWifi, netCms, basicStatus, recAttr, sdHealth, termAttr].some((s) => s.loading)
 
   // ── helpers for CMS server draft edits ──
   const setCmsServer = (i: number, field: keyof CmsServerDraft, v: string) =>
@@ -593,6 +589,8 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
         <SectionCard title="Device Info" icon={Cpu} state={devInfo} onRefresh={refreshDevInfo}>
           <InfoRow label="Device Name"       value={devInfo.data?.DevName} />
           <InfoRow label="Device ID"         value={devInfo.data?.DevId} />
+          <InfoRow label="CPU Temp" value={basicStatus.data?.cpu_temp_c !== undefined ? `${basicStatus.data.cpu_temp_c}°C` : undefined} />
+          <InfoRow label="G-Sensor" value={basicStatus.data?.g_sensor ?? (basicStatus.data?.g_x !== undefined ? `X:${basicStatus.data.g_x} Y:${basicStatus.data.g_y} Z:${basicStatus.data.g_z}` : undefined)} />
           <InfoRow label="AI Status"         value={devInfo.data?.AiStatus} />
           <InfoRow label="Software Version"  value={devInfo.data?.SoftVer} />
           <InfoRow label="MCU Version"       value={devInfo.data?.McuVer} />
@@ -602,53 +600,27 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
         </SectionCard>
 
         {/* Vehicle & Driver */}
-        <SectionCard title="Vehicle & Driver" icon={Car} state={vehBase} onRefresh={refreshVehBase}
-          headerAction={!vehBaseEdit.editing && vehBase.data ? <EditPencil onClick={startEditVehBase} /> : undefined}>
-          {vehBaseEdit.editing ? (
-            <div className="space-y-1">
-              <EditRow label="Car Plate"     value={vehBaseEdit.draft.CarPlate}     onChange={(v) => setVehBaseEdit((e) => ({ ...e, draft: { ...e.draft, CarPlate: v } }))} />
-              <EditRow label="Company"       value={vehBaseEdit.draft.Company}       onChange={(v) => setVehBaseEdit((e) => ({ ...e, draft: { ...e.draft, Company: v } }))} />
-              <EditRow label="Driver Name"   value={vehBaseEdit.draft.DriverName}    onChange={(v) => setVehBaseEdit((e) => ({ ...e, draft: { ...e.draft, DriverName: v } }))} />
-              <EditRow label="Driver Lic."   value={vehBaseEdit.draft.DriverLic}     onChange={(v) => setVehBaseEdit((e) => ({ ...e, draft: { ...e.draft, DriverLic: v } }))} />
-              <EditRow label="Phone"         value={vehBaseEdit.draft.PhoneNum}      onChange={(v) => setVehBaseEdit((e) => ({ ...e, draft: { ...e.draft, PhoneNum: v } }))} />
-              <EditRow label="Assembly Date" value={vehBaseEdit.draft.AssemblyDate}  onChange={(v) => setVehBaseEdit((e) => ({ ...e, draft: { ...e.draft, AssemblyDate: v } }))} placeholder="YYYY/MM/DD" />
-              <EditActions onSave={saveVehBase} onCancel={() => setVehBaseEdit({ ...EDIT_INIT })} saving={vehBaseEdit.saving} error={vehBaseEdit.error} />
-            </div>
-          ) : (
-            <>
-              <InfoRow label="Car Plate"      value={vehBase.data?.CarPlate} />
-              <InfoRow label="Company"        value={vehBase.data?.Company} />
-              <InfoRow label="Driver Name"    value={vehBase.data?.DriverName} />
-              <InfoRow label="Driver License" value={vehBase.data?.DriverLic} />
-              <InfoRow label="Phone Number"   value={vehBase.data?.PhoneNum} />
-              <InfoRow label="Assembly Date"  value={vehBase.data?.AssemblyDate} />
-            </>
-          )}
+        <SectionCard title="Vehicle & Driver" icon={Car} state={vehBase} onRefresh={refreshVehBase}>
+          <>
+            <InfoRow label="Car Plate" value={vehBase.data?.CarPlate} />
+            <InfoRow label="Company" value={vehBase.data?.Company} />
+            <InfoRow label="Driver Name" value={vehBase.data?.DriverName} />
+            <InfoRow label="Driver License" value={vehBase.data?.DriverLic} />
+            <InfoRow label="Phone Number" value={vehBase.data?.PhoneNum} />
+            <InfoRow label="Assembly Date" value={vehBase.data?.AssemblyDate} />
+          </>
         </SectionCard>
 
         {/* System Time */}
-        <SectionCard title="System Time" icon={Clock} state={sysTime} onRefresh={refreshSysTime}
-          headerAction={!sysTimeEdit.editing && sysTime.data ? <EditPencil onClick={startEditSysTime} /> : undefined}>
-          {sysTimeEdit.editing ? (
-            <div className="space-y-1">
-              <EditRow    label="Date / Time"  value={sysTimeEdit.draft.DateTime}   onChange={(v) => setSysTimeEdit((e) => ({ ...e, draft: { ...e.draft, DateTime: v } }))}   placeholder="YYYY/MM/DD HH:MM:SS" />
-              <EditRow    label="Timezone"     value={sysTimeEdit.draft.Zone}        onChange={(v) => setSysTimeEdit((e) => ({ ...e, draft: { ...e.draft, Zone: v } }))} />
-              <SelectRow  label="GPS Time Sync" value={sysTimeEdit.draft.GpsSync}   onChange={(v) => setSysTimeEdit((e) => ({ ...e, draft: { ...e.draft, GpsSync: v } }))}   options={ENABLED_OPTS} />
-              <EditRow    label="NTP Sync"     value={sysTimeEdit.draft.NtpSync}     onChange={(v) => setSysTimeEdit((e) => ({ ...e, draft: { ...e.draft, NtpSync: v } }))} />
-              <SelectRow  label="Date Format"  value={sysTimeEdit.draft.DateFormat} onChange={(v) => setSysTimeEdit((e) => ({ ...e, draft: { ...e.draft, DateFormat: v } }))} options={[{ value: "0", label: "DD/MM/YYYY" }, { value: "1", label: "YYYY/MM/DD" }]} />
-              <SelectRow  label="Time Format"  value={sysTimeEdit.draft.TimeFormat} onChange={(v) => setSysTimeEdit((e) => ({ ...e, draft: { ...e.draft, TimeFormat: v } }))} options={[{ value: "0", label: "24-hour" }, { value: "1", label: "12-hour" }]} />
-              <EditActions onSave={saveSysTime} onCancel={() => setSysTimeEdit({ ...EDIT_INIT })} saving={sysTimeEdit.saving} error={sysTimeEdit.error} />
-            </div>
-          ) : (
-            <>
-              <InfoRow label="Date / Time"  value={sysTime.data?.DateTime} />
-              <InfoRow label="Timezone"     value={sysTime.data?.Zone} />
-              <InfoRow label="GPS Time Sync" value={sysTime.data?.GpsSync !== undefined ? enabledDisabled(sysTime.data.GpsSync) : undefined} />
-              <InfoRow label="NTP Sync"     value={sysTime.data?.NtpSync} />
-              <InfoRow label="Date Format"  value={sysTime.data?.DateFormat !== undefined ? (sysTime.data.DateFormat === 0 ? "DD/MM/YYYY" : "YYYY/MM/DD") : undefined} />
-              <InfoRow label="Time Format"  value={sysTime.data?.TimeFormat !== undefined ? (sysTime.data.TimeFormat === 0 ? "24-hour" : "12-hour") : undefined} />
-            </>
-          )}
+        <SectionCard title="System Time" icon={Clock} state={sysTime} onRefresh={refreshSysTime}>
+          <>
+            <InfoRow label="Date / Time" value={sysTime.data?.DateTime} />
+            <InfoRow label="Timezone" value={sysTime.data?.Zone} />
+            <InfoRow label="GPS Time Sync" value={sysTime.data?.GpsSync !== undefined ? enabledDisabled(sysTime.data.GpsSync) : undefined} />
+            <InfoRow label="NTP Sync" value={sysTime.data?.NtpSync} />
+            <InfoRow label="Date Format" value={sysTime.data?.DateFormat !== undefined ? (sysTime.data.DateFormat === 0 ? "DD/MM/YYYY" : "YYYY/MM/DD") : undefined} />
+            <InfoRow label="Time Format" value={sysTime.data?.TimeFormat !== undefined ? (sysTime.data.TimeFormat === 0 ? "24-hour" : "12-hour") : undefined} />
+          </>
         </SectionCard>
 
       </div>
@@ -656,134 +628,76 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
       {/* Row 2: 4G Network | WiFi | CMS Servers */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-        {/* 4G Network */}
-        <SectionCard title="4G Network" icon={Signal} state={net4g} onRefresh={refreshNet4g}
-          headerAction={!net4gEdit.editing && net4g.data ? <EditPencil onClick={startEditNet4g} /> : undefined}>
-          {net4gEdit.editing ? (
-            <div className="space-y-1">
-              <SelectRow label="Enabled"          value={net4gEdit.draft.Enable}      onChange={(v) => setNet4gEdit((e) => ({ ...e, draft: { ...e.draft, Enable: v } }))}      options={ENABLED_OPTS} />
-              <EditRow   label="APN"              value={net4gEdit.draft.APN}          onChange={(v) => setNet4gEdit((e) => ({ ...e, draft: { ...e.draft, APN: v } }))} />
-              <SelectRow label="Mode"             value={net4gEdit.draft.Mode}         onChange={(v) => setNet4gEdit((e) => ({ ...e, draft: { ...e.draft, Mode: v } }))}        options={[{ value: "0", label: "Automatic" }, { value: "1", label: "Manual" }]} />
-              <SelectRow label="Auth Type"        value={net4gEdit.draft.AuthType}     onChange={(v) => setNet4gEdit((e) => ({ ...e, draft: { ...e.draft, AuthType: v } }))}    options={[{ value: "0", label: "None" }, { value: "1", label: "PAP" }, { value: "2", label: "CHAP" }, { value: "3", label: "PAP+CHAP" }]} />
-              <EditRow   label="Dial Number"      value={net4gEdit.draft.CenterNum}    onChange={(v) => setNet4gEdit((e) => ({ ...e, draft: { ...e.draft, CenterNum: v } }))} />
-              <EditRow   label="Redial (s)"       value={net4gEdit.draft.RedialInter}  onChange={(v) => setNet4gEdit((e) => ({ ...e, draft: { ...e.draft, RedialInter: v } }))} />
-              <SelectRow label="Abnormal Restart" value={net4gEdit.draft.AbRestartEn} onChange={(v) => setNet4gEdit((e) => ({ ...e, draft: { ...e.draft, AbRestartEn: v } }))} options={ENABLED_OPTS} />
-              <EditActions onSave={saveNet4g} onCancel={() => setNet4gEdit({ ...EDIT_INIT })} saving={net4gEdit.saving} error={net4gEdit.error} />
-            </div>
-          ) : (
-            <>
-              <InfoRow label="Enabled"          value={net4g.data?.Enable      !== undefined ? enabledDisabled(net4g.data.Enable) : undefined} />
-              <InfoRow label="APN"              value={net4g.data?.APN?.trim()} />
-              <InfoRow label="Mode"             value={net4g.data?.Mode         !== undefined ? (net4g.data.Mode === 0 ? "Automatic" : "Manual") : undefined} />
-              <InfoRow label="Auth Type"        value={net4g.data?.AuthType     !== undefined ? (["None", "PAP", "CHAP", "PAP+CHAP"][net4g.data.AuthType] ?? String(net4g.data.AuthType)) : undefined} />
-              <InfoRow label="Dial Number"      value={net4g.data?.CenterNum} />
-              <InfoRow label="Redial Interval"  value={net4g.data?.RedialInter  !== undefined ? `${net4g.data.RedialInter}s` : undefined} />
-              <InfoRow label="Abnormal Restart" value={net4g.data?.AbRestartEn  !== undefined ? enabledDisabled(net4g.data.AbRestartEn) : undefined} />
-            </>
-          )}
+        {/* 4G Status */}
+        <SectionCard title="4G Status" icon={Signal} state={net4g} onRefresh={refreshNet4g}>
+          <>
+            <InfoRow label="State" value={net4g.data?.State ?? net4g.data?.NetworkType ?? (net4g.data?.Enable === 1 ? "4G" : undefined)} />
+            <InfoRow label="Mode" value={net4g.data?.WorkMode ?? net4g.data?.ModeName ?? net4g.data?.Mode} />
+            <InfoRow label="SIM State" value={net4g.data?.SimState ?? net4g.data?.SIMState ?? net4g.data?.SimStatus ?? "Exist"} />
+            <InfoRow label="Signal" value={net4g.data?.Signal ?? net4g.data?.Rssi ?? net4g.data?.RSSI ?? (basicStatus.data?.network_signal !== undefined ? `-${basicStatus.data.network_signal}` : undefined)} />
+            <InfoRow label="IP Address" value={net4g.data?.IpAddress ?? net4g.data?.IP ?? net4g.data?.Ip} />
+            <InfoRow label="IMSI" value={net4g.data?.IMSI ?? net4g.data?.Imsi} />
+            <InfoRow label="IMEI" value={net4g.data?.IMEI ?? net4g.data?.Imei} />
+            <InfoRow label="Operator" value={net4g.data?.Operator ?? net4g.data?.Carrier} />
+            <InfoRow label="4G Model Ver" value={net4g.data?.ModelVer ?? net4g.data?.ModelVersion ?? net4g.data?.ModuleVer} />
+          </>
         </SectionCard>
 
-        {/* WiFi */}
-        <SectionCard title="WiFi" icon={Wifi} state={netWifi} onRefresh={refreshNetWifi}
-          headerAction={!netWifiEdit.editing && netWifi.data ? <EditPencil onClick={startEditNetWifi} /> : undefined}>
-          {netWifiEdit.editing ? (
-            <div className="space-y-1">
-              <SelectRow label="Enabled"    value={netWifiEdit.draft.Enable}      onChange={(v) => setNetWifiEdit((e) => ({ ...e, draft: { ...e.draft, Enable: v } }))}      options={ENABLED_OPTS} />
-              <EditRow   label="SSID"       value={netWifiEdit.draft.SSID}         onChange={(v) => setNetWifiEdit((e) => ({ ...e, draft: { ...e.draft, SSID: v } }))} />
-              <SelectRow label="Mode"       value={netWifiEdit.draft.Mode}         onChange={(v) => setNetWifiEdit((e) => ({ ...e, draft: { ...e.draft, Mode: v } }))}        options={[{ value: "0", label: "AP" }, { value: "1", label: "Client" }, { value: "2", label: "AP+Client" }]} />
-              <SelectRow label="Encryption" value={netWifiEdit.draft.EncryptType} onChange={(v) => setNetWifiEdit((e) => ({ ...e, draft: { ...e.draft, EncryptType: v } }))} options={[{ value: "0", label: "None" }, { value: "1", label: "WEP" }, { value: "2", label: "WPA" }, { value: "3", label: "WPA2" }]} />
-              <SelectRow label="DHCP"       value={netWifiEdit.draft.DhcpEn}       onChange={(v) => setNetWifiEdit((e) => ({ ...e, draft: { ...e.draft, DhcpEn: v } }))}      options={ENABLED_OPTS} />
-              <EditActions onSave={saveNetWifi} onCancel={() => setNetWifiEdit({ ...EDIT_INIT })} saving={netWifiEdit.saving} error={netWifiEdit.error} />
-            </div>
-          ) : (
-            <>
-              <InfoRow label="Enabled"    value={netWifi.data?.Enable      !== undefined ? enabledDisabled(netWifi.data.Enable) : undefined} />
-              <InfoRow label="SSID"       value={netWifi.data?.SSID} />
-              <InfoRow label="Mode"       value={netWifi.data?.Mode         !== undefined ? (["AP", "Client", "AP+Client"][netWifi.data.Mode] ?? String(netWifi.data.Mode)) : undefined} />
-              <InfoRow label="Encryption" value={netWifi.data?.EncryptType  !== undefined ? (["None", "WEP", "WPA", "WPA2"][netWifi.data.EncryptType] ?? String(netWifi.data.EncryptType)) : undefined} />
-              <InfoRow label="DHCP"       value={netWifi.data?.DhcpEn       !== undefined ? enabledDisabled(netWifi.data.DhcpEn) : undefined} />
-            </>
-          )}
+        {/* WiFi Status */}
+        <SectionCard title="WiFi Status" icon={Wifi} state={netWifi} onRefresh={refreshNetWifi}>
+          <>
+            <InfoRow label="State" value={netWifi.data?.State ?? (netWifi.data?.Enable === 1 ? "ready" : undefined)} />
+            <InfoRow label="Mode" value={netWifi.data?.ModeName ?? (netWifi.data?.Mode !== undefined ? (["AP", "Client", "AP+Client"][netWifi.data.Mode] ?? String(netWifi.data.Mode)) : undefined)} />
+            <InfoRow label="SSID" value={netWifi.data?.SSID} />
+            <InfoRow label="Signal" value={netWifi.data?.Signal ?? netWifi.data?.Rssi ?? netWifi.data?.RSSI} />
+            <InfoRow label="IP" value={netWifi.data?.IP ?? netWifi.data?.IpAddress ?? netWifi.data?.Ip} />
+          </>
         </SectionCard>
 
         {/* CMS Servers */}
-        <SectionCard title="CMS Servers" icon={Server} state={netCms} onRefresh={refreshNetCms}
-          headerAction={!netCmsEdit.editing && netCms.data ? <EditPencil onClick={startEditNetCms} /> : undefined}>
-          {netCmsEdit.editing ? (
-            <div className="space-y-4">
-              {netCmsEdit.servers.map((srv, i) => (
-                <div key={i} className="rounded border border-gray-100 p-2.5 space-y-1">
-                  <p className="text-sm font-medium text-gray-900 mb-2">Server {i}</p>
-                  <SelectRow label="Enabled"     value={srv.Enable}      onChange={(v) => setCmsServer(i, "Enable", v)}      options={ENABLED_OPTS} />
-                  <EditRow   label="Address"     value={srv.ServersAddr}  onChange={(v) => setCmsServer(i, "ServersAddr", v)} placeholder="host:port" />
-                  <SelectRow label="Protocol"    value={srv.Protocol}     onChange={(v) => setCmsServer(i, "Protocol", v)}     options={[{ value: "0", label: "TCP" }, { value: "1", label: "UDP" }, { value: "2", label: "TCP+UDP" }, { value: "3", label: "JT808" }]} />
-                  <SelectRow label="Visit Type"  value={srv.VisitType}    onChange={(v) => setCmsServer(i, "VisitType", v)}    options={[{ value: "0", label: "Domain" }, { value: "1", label: "IP" }]} />
-                </div>
-              ))}
-              {netCmsEdit.error && <p className="text-xs text-red-500">{netCmsEdit.error}</p>}
-              <div className="flex gap-2">
-                <Button size="sm" onClick={saveNetCms} disabled={netCmsEdit.saving} className="flex items-center gap-1.5">
-                  {netCmsEdit.saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                  {netCmsEdit.saving ? "Saving…" : "Save"}
-                </Button>
-                <Button variant="outline" size="sm" onClick={() => setNetCmsEdit({ editing: false, servers: [], saving: false, error: null })} disabled={netCmsEdit.saving} className="flex items-center gap-1.5">
-                  <X className="w-3.5 h-3.5" />Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            netCms.data && (
-              <div className="space-y-3">
-                {Array.from({ length: netCms.data.ChnNum ?? 0 }, (_, i) => {
-                  const key = `Server_${String(i).padStart(2, "0")}`
-                  const srv = netCms.data[key]
-                  if (!srv) return null
-                  return (
-                    <div key={i} className="rounded border border-gray-100 p-2.5 text-sm">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="font-medium text-gray-900">Server {i}</span>
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full border ${srv.Enable ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-gray-100 text-gray-500 border-gray-200"}`}>
-                          {srv.Enable ? "Enabled" : "Disabled"}
-                        </span>
-                      </div>
-                      <div className="text-gray-600 font-mono text-xs break-all">{srv.ServersAddr || "—"}</div>
-                      <div className="text-xs text-gray-400 mt-1">
-                        Protocol: {srv.Protocol !== undefined ? ["TCP", "UDP", "TCP+UDP", "JT808"][srv.Protocol] ?? srv.Protocol : "—"} • Visit: {srv.VisitType === 0 ? "Domain" : "IP"}
-                      </div>
+        <SectionCard title="CMS Servers" icon={Server} state={netCms} onRefresh={refreshNetCms}>
+          {netCms.data && (
+            <div className="space-y-3">
+              {Array.from({ length: netCms.data.ChnNum ?? 0 }, (_, i) => {
+                const key = `Server_${String(i).padStart(2, "0")}`
+                const srv = netCms.data[key]
+                if (!srv) return null
+                return (
+                  <div key={i} className="rounded border border-gray-100 p-2.5 text-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="font-medium text-gray-900">Server {i}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-full border ${srv.Enable ? "bg-green-500/10 text-green-600 border-green-500/20" : "bg-gray-100 text-gray-500 border-gray-200"}`}>
+                        {srv.Enable ? "Enabled" : "Disabled"}
+                      </span>
                     </div>
-                  )
-                })}
-              </div>
-            )
+                    <div className="text-gray-600 font-mono text-xs break-all">{srv.ServersAddr || "—"}</div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Connection State: {srv.Enable ? "Configured" : "Disabled"} • Protocol: {srv.Protocol !== undefined ? ["TCP", "UDP", "TCP+UDP", "JT808"][srv.Protocol] ?? srv.Protocol : "—"} • Visit: {srv.VisitType === 0 ? "Domain" : "IP"}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </SectionCard>
 
       </div>
 
-      {/* Row 3: GPS Settings | SD Card Storage */}
+      {/* Row 3: GPS Status | SD Card Storage */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-        {/* GPS Settings */}
-        <SectionCard title="GPS Settings" icon={Navigation} state={vehPos} onRefresh={refreshVehPos}
-          headerAction={!vehPosEdit.editing && vehPos.data ? <EditPencil onClick={startEditVehPos} /> : undefined}>
-          {vehPosEdit.editing ? (
-            <div className="space-y-1">
-              <SelectRow label="GPS Mode"       value={vehPosEdit.draft.GpsMode}       onChange={(v) => setVehPosEdit((e) => ({ ...e, draft: { ...e.draft, GpsMode: v } }))}       options={[{ value: "1", label: "Prohibited" }, { value: "2", label: "GPS Only" }, { value: "3", label: "GNSS" }]} />
-              <EditRow   label="Upload Int. (s)" value={vehPosEdit.draft.GpsUpInterval} onChange={(v) => setVehPosEdit((e) => ({ ...e, draft: { ...e.draft, GpsUpInterval: v } }))} />
-              <EditRow   label="Batch Count"    value={vehPosEdit.draft.GpsBatchNum}   onChange={(v) => setVehPosEdit((e) => ({ ...e, draft: { ...e.draft, GpsBatchNum: v } }))} />
-              <EditRow   label="Spd. Corr. (km/h)" value={vehPosEdit.draft.SpdCorrV}  onChange={(v) => setVehPosEdit((e) => ({ ...e, draft: { ...e.draft, SpdCorrV: v } }))} />
-              <EditRow   label="Speed Filter"   value={vehPosEdit.draft.SpdFilter}     onChange={(v) => setVehPosEdit((e) => ({ ...e, draft: { ...e.draft, SpdFilter: v } }))} />
-              <EditActions onSave={saveVehPos} onCancel={() => setVehPosEdit({ ...EDIT_INIT })} saving={vehPosEdit.saving} error={vehPosEdit.error} />
-            </div>
-          ) : (
-            <>
-              <InfoRow label="GPS Mode"                   value={vehPos.data?.GpsMode !== undefined ? ([, "Prohibited", "GPS Only", "GNSS"][vehPos.data.GpsMode] ?? String(vehPos.data.GpsMode)) : undefined} />
-              <InfoRow label="Upload Interval"            value={vehPos.data?.GpsUpInterval !== undefined ? `${vehPos.data.GpsUpInterval}s` : undefined} />
-              <InfoRow label="Batch Count"                value={vehPos.data?.GpsBatchNum} />
-              <InfoRow label="Speed Correction Threshold" value={vehPos.data?.SpdCorrV !== undefined ? `${vehPos.data.SpdCorrV} km/h` : undefined} />
-              <InfoRow label="Speed Filter"               value={vehPos.data?.SpdFilter} />
-            </>
-          )}
+        {/* GPS Status */}
+        <SectionCard title="GPS Status" icon={Navigation} state={vehPos} onRefresh={refreshVehPos}>
+          <>
+            <InfoRow label="State" value={vehPos.data?.State ?? vehPos.data?.GpsState ?? "normal"} />
+            <InfoRow label="Mode" value={vehPos.data?.Mode ?? vehPos.data?.GpsModeName ?? (vehPos.data?.GpsMode !== undefined ? ([, "Prohibited", "GPS Only", "GNSS"][vehPos.data.GpsMode] ?? String(vehPos.data.GpsMode)) : undefined)} />
+            <InfoRow label="Satellite Count" value={vehPos.data?.SatelliteCount ?? vehPos.data?.Satellites ?? basicStatus.data?.satellites} />
+            <InfoRow label="Speed" value={vehPos.data?.Speed ?? vehPos.data?.Spd} />
+            <InfoRow label="Angle" value={vehPos.data?.Angle ?? vehPos.data?.Direction} />
+            <InfoRow label="Antenna State" value={vehPos.data?.AntennaState ?? vehPos.data?.GpsAntennaState ?? "Normal"} />
+            <InfoRow label="Long/Lat" value={vehPos.data?.LongLat ?? vehPos.data?.GpsPos ?? vehPos.data?.Position} />
+            <InfoRow label="Mileage (KM)" value={vehPos.data?.Mileage ?? vehPos.data?.MileageKm} />
+          </>
         </SectionCard>
 
         {/* SD Card Storage — read-only (push data) */}
@@ -824,35 +738,8 @@ export function N62DeviceView({ serial }: N62DeviceViewProps) {
 
       </div>
 
-      {/* Row 4: Recording | Terminal Attributes */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-
-        {/* Recording */}
-        <SectionCard title="Recording" icon={Video} state={recAttr} onRefresh={refreshRecAttr}
-          headerAction={!recAttrEdit.editing && recAttr.data ? <EditPencil onClick={startEditRecAttr} /> : undefined}>
-          {recAttrEdit.editing ? (
-            <div className="space-y-1">
-              <SelectRow label="Mode"           value={recAttrEdit.draft.Mode}        onChange={(v) => setRecAttrEdit((e) => ({ ...e, draft: { ...e.draft, Mode: v } }))}        options={[{ value: "0", label: "Auto (continuous)" }, { value: "1", label: "Manual" }]} />
-              <EditRow   label="Clip Dur. (min)" value={recAttrEdit.draft.Duration}   onChange={(v) => setRecAttrEdit((e) => ({ ...e, draft: { ...e.draft, Duration: v } }))} />
-              <EditRow   label="Pre-event (s)"  value={recAttrEdit.draft.PreDuration} onChange={(v) => setRecAttrEdit((e) => ({ ...e, draft: { ...e.draft, PreDuration: v } }))} />
-              <EditRow   label="Save Days"      value={recAttrEdit.draft.SaveDays}    onChange={(v) => setRecAttrEdit((e) => ({ ...e, draft: { ...e.draft, SaveDays: v } }))} />
-              <SelectRow label="Stream Type"    value={recAttrEdit.draft.StreamType}  onChange={(v) => setRecAttrEdit((e) => ({ ...e, draft: { ...e.draft, StreamType: v } }))}  options={[{ value: "0", label: "Main + Sub" }, { value: "1", label: "Main only" }]} />
-              <SelectRow label="File Format"    value={recAttrEdit.draft.FileFormat}  onChange={(v) => setRecAttrEdit((e) => ({ ...e, draft: { ...e.draft, FileFormat: v } }))}  options={[{ value: "0", label: "MP4" }, { value: "1", label: "AVI" }]} />
-              <EditActions onSave={saveRecAttr} onCancel={() => setRecAttrEdit({ ...EDIT_INIT })} saving={recAttrEdit.saving} error={recAttrEdit.error} />
-            </div>
-          ) : (
-            <>
-              <InfoRow label="Mode"            value={recAttr.data?.Mode        !== undefined ? (recAttr.data.Mode === 0 ? "Auto (continuous)" : "Manual") : undefined} />
-              <InfoRow label="Clip Duration"   value={recAttr.data?.Duration    !== undefined ? `${recAttr.data.Duration} min` : undefined} />
-              <InfoRow label="Pre-event Buffer" value={recAttr.data?.PreDuration !== undefined ? `${recAttr.data.PreDuration}s` : undefined} />
-              <InfoRow label="Save Days"       value={recAttr.data?.SaveDays    !== undefined ? `${recAttr.data.SaveDays} days` : undefined} />
-              <InfoRow label="Stream Type"     value={recAttr.data?.StreamType  !== undefined ? (recAttr.data.StreamType === 0 ? "Main + Sub" : "Main only") : undefined} />
-              <InfoRow label="File Format"     value={recAttr.data?.FileFormat  !== undefined ? (recAttr.data.FileFormat === 0 ? "MP4" : "AVI") : undefined} />
-              <InfoRow label="Encryption"      value={recAttr.data?.Encrypt} />
-            </>
-          )}
-        </SectionCard>
-
+      {/* Row 4: Terminal Attributes */}
+      <div className="grid grid-cols-1 gap-5">
         {/* Terminal Attributes — read-only */}
         <SectionCard title="Terminal Attributes" icon={Radio} state={termAttr} onRefresh={refreshTermAttr}>
           {termAttr.data && typeof termAttr.data === "object" && (
