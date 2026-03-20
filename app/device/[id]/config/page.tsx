@@ -23,6 +23,8 @@ import { ConfigShell } from "@/components/device-shell/config-shell"
 import { SectionTabs } from "@/components/device-shell/section-tabs"
 import { getCapabilitiesForUnit, getSectionOrderForUnit, normalizeProtocol } from "@/lib/units/registry"
 import type { UnitCapabilities } from "@/lib/units/types"
+import { N62DeviceConfig } from "@/components/devices/n62/n62-device-config"
+import { NotificationsSidebar } from "@/components/notifications-sidebar"
 
 interface Device {
   id: number
@@ -107,6 +109,16 @@ export default function DeviceConfigPage() {
       setDevice(mapped)
 
       if (mapped.serial) {
+        const resolvedProtocol = getCapabilitiesForUnit({
+          serial: mapped.serial,
+          deviceModel: mapped.device_model,
+          protocol: mapped.protocol,
+        }).protocol
+        if (resolvedProtocol === "jt808") {
+          setConfig({})
+          setInitialConfig({})
+          return
+        }
         await fetchConfig(mapped.serial, mapped.device_model, mapped.protocol)
       } else {
         setError('Device serial not available')
@@ -528,7 +540,13 @@ export default function DeviceConfigPage() {
     )
   }
 
-  if (error || !device || !config) {
+  const isJt808 = getCapabilitiesForUnit({
+    serial: device?.serial,
+    deviceModel: device?.device_model,
+    protocol: device?.protocol,
+  }).protocol === "jt808"
+
+  if (error || !device || (!isJt808 && !config)) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="w-full max-w-7xl mx-auto px-4 py-12">
@@ -541,6 +559,24 @@ export default function DeviceConfigPage() {
           </div>
         </div>
       </div>
+    )
+  }
+
+  if (isJt808 && device.serial) {
+    return (
+      <ConfigShell
+        deviceId={device.id}
+        deviceName={device.friendly_name || "Unnamed Device"}
+        serial={device.serial}
+        hasChanges={false}
+        saving={false}
+        onReset={() => {}}
+      >
+        <div className="w-full lg:pr-[360px]">
+          <NotificationsSidebar />
+          <N62DeviceConfig serial={device.serial} />
+        </div>
+      </ConfigShell>
     )
   }
 
