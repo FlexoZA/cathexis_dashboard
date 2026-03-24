@@ -571,10 +571,13 @@ export default function DeviceConfigPage() {
         hasChanges={false}
         saving={false}
         onReset={() => {}}
+        containerClassName="max-w-[1440px]"
       >
-        <div className="w-full lg:pr-[360px]">
-          <NotificationsSidebar />
-          <N62DeviceConfig serial={device.serial} />
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="min-w-0">
+            <N62DeviceConfig serial={device.serial} />
+          </div>
+          <NotificationsSidebar className="lg:sticky lg:top-6 lg:w-[280px] lg:max-h-[calc(100vh-6rem)] lg:self-start" />
         </div>
       </ConfigShell>
     )

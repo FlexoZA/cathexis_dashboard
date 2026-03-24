@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react"
 import Link from "next/link"
-import { Eye, Search } from "lucide-react"
+import { Eye, Search, Settings } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -399,6 +399,20 @@ export function DeviceList() {
                           <Eye className="w-4 h-4" />
                           View
                         </Link>
+                      </Button>
+                    )}
+
+                    {device.status === 'online' ? (
+                      <Button variant="outline" className="flex-1" asChild>
+                        <Link href={`/device/${device.id}/config`}>
+                          <Settings className="w-4 h-4" />
+                          Config
+                        </Link>
+                      </Button>
+                    ) : (
+                      <Button variant="outline" className="flex-1" disabled>
+                        <Settings className="w-4 h-4" />
+                        Config
                       </Button>
                     )}
 

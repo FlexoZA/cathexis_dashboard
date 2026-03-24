@@ -12,6 +12,7 @@ interface ConfigShellProps {
   saving: boolean
   onReset: () => void
   children: React.ReactNode
+  containerClassName?: string
 }
 
 export function ConfigShell({
@@ -22,11 +23,12 @@ export function ConfigShell({
   saving,
   onReset,
   children,
+  containerClassName = "max-w-7xl",
 }: ConfigShellProps) {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white border-b border-gray-200">
-        <div className="w-full max-w-7xl mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className={`w-full ${containerClassName} mx-auto px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between`}>
           <div className="flex items-center gap-2">
             <Settings className="w-5 h-5 text-gray-700" />
             <div>
@@ -47,7 +49,7 @@ export function ConfigShell({
         </div>
       </div>
       <div className="bg-white border-b border-gray-200">
-        <div className="w-full max-w-7xl mx-auto px-4 py-3">
+        <div className={`w-full ${containerClassName} mx-auto px-4 py-3`}>
           <DeviceBreadcrumb
             items={[
               { label: "Devices", href: "/" },
@@ -57,7 +59,7 @@ export function ConfigShell({
           />
         </div>
       </div>
-      <div className="w-full max-w-7xl mx-auto px-4 py-6 space-y-6">{children}</div>
+      <div className={`w-full ${containerClassName} mx-auto px-4 py-6 space-y-6`}>{children}</div>
     </div>
   )
 }

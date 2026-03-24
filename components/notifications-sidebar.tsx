@@ -4,11 +4,19 @@ import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useNotifications } from "./notifications-provider"
 
-export function NotificationsSidebar() {
+interface NotificationsSidebarProps {
+  className?: string
+}
+
+export function NotificationsSidebar({ className }: NotificationsSidebarProps) {
   const { notifications, removeNotification } = useNotifications()
 
   return (
-    <aside className="hidden lg:flex bg-white border border-gray-200 rounded-lg shadow-sm flex-col lg:fixed lg:right-0 lg:top-16 lg:w-[320px] lg:h-[calc(100vh-4rem)] lg:rounded-r-none">
+    <aside
+      className={`hidden lg:flex bg-white border border-gray-200 rounded-lg shadow-sm flex-col ${
+        className ?? "lg:fixed lg:right-0 lg:top-16 lg:w-[320px] lg:h-[calc(100vh-4rem)] lg:rounded-r-none"
+      }`}
+    >
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center gap-3 mb-2">
           <h2 className="text-lg font-semibold text-gray-900">Notifications</h2>
