@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useRef } from "react"
 import Link from "next/link"
-import { Eye, Search, Settings } from "lucide-react"
+import { Eye, Search, Settings, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -12,6 +12,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { supabase } from "@/lib/supabase"
 import { UnknownDevice } from "@/lib/types/database"
 import { AddDeviceDialog } from "./add-device-dialog"
@@ -57,6 +67,8 @@ export function DeviceList() {
   const [unknownDialogOpen, setUnknownDialogOpen] = useState(false)
   const [selectedUnknownDevice, setSelectedUnknownDevice] = useState<UnknownDevice | null>(null)
   const [rejectingUnknownDeviceId, setRejectingUnknownDeviceId] = useState<number | null>(null)
+  const [devicePendingDelete, setDevicePendingDelete] = useState<Device | null>(null)
+  const [deletingDeviceId, setDeletingDeviceId] = useState<number | null>(null)
   const hasFetchedDevicesRef = useRef(false)
   const previousDeviceStatusRef = useRef<Record<number, Device["status"]>>({})
 
@@ -387,7 +399,7 @@ export function DeviceList() {
                   </div>
                 </div>
                 <div className="border-t border-gray-200 p-4 bg-white rounded-b-lg">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col gap-2">
                     {device.status === 'offline' ? (
                       <Button variant="outline" className="flex-1" disabled>
                         <Eye className="w-4 h-4" />
@@ -423,6 +435,16 @@ export function DeviceList() {
                       protocol={device.protocol}
                       disabled={device.status === 'offline'}
                     />
+
+                    <Button
+                      variant="outline"
+                      className="flex-1 text-red-600 hover:text-red-700"
+                      onClick={() => setDevicePendingDelete(device)}
+                      disabled={deletingDeviceId === device.id}
+                    >
+                      <X className="w-4 h-4" />
+                      Remove
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -446,6 +468,53 @@ export function DeviceList() {
           if (!open) setSelectedUnknownDevice(null)
         }}
       />
+
+      <AlertDialog open={Boolean(devicePendingDelete)} onOpenChange={(open) => {
+        if (!open && deletingDeviceId === null) setDevicePendingDelete(null)
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove device?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {devicePendingDelete
+                ? `This will remove ${devicePendingDelete.device_friendly_name} from mvr_devices.`
+                : "This will remove the device from mvr_devices."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deletingDeviceId !== null}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deletingDeviceId !== null}
+              onClick={async (event) => {
+                event.preventDefault()
+                if (!devicePendingDelete) return
+
+                try {
+                  setDeletingDeviceId(devicePendingDelete.id)
+                  const { error: deleteError } = await supabase
+                    .from("mvr_devices")
+                    .delete()
+                    .eq("id", devicePendingDelete.id)
+
+                  if (deleteError) {
+                    throw deleteError
+                  }
+
+                  addNotification("Device Removed", `${devicePendingDelete.device_friendly_name} was removed.`)
+                  setDevicePendingDelete(null)
+                  await fetchDevices()
+                } catch (deleteError: any) {
+                  addNotification("Remove Device Failed", deleteError?.message || "Failed to remove device.")
+                } finally {
+                  setDeletingDeviceId(null)
+                }
+              }}
+            >
+              {deletingDeviceId !== null ? "Removing..." : "Remove"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
