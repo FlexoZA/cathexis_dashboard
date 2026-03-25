@@ -86,6 +86,28 @@ Detailed frontend/video.js guidance: `docs/FRONTEND_STREAMING_GUIDE.md`. Backend
 - Lint: `npm run lint`
 - Build: `npm run build`
 
+## Docker
+This repo includes a production `Dockerfile` that builds the app with Next.js standalone output.
+
+Build requirements:
+- Set `ENV=production` during the image build.
+- Provide `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` at build time so the client bundle is compiled with the production values.
+- Provide `CWE_MVR_API_URL` and `CWE_MVR_API_KEY` at runtime for the server-side API routes.
+
+Example build:
+```bash
+docker build \
+  --build-arg ENV=production \
+  --build-arg NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+  --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+  -t cathexis-dashboard:production .
+```
+
+Example runtime:
+```bash
+docker run --env-file .env.production.local -p 3000:3000 cathexis-dashboard:production
+```
+
 ## Operational Notes
 - Streaming expects the backend to expose HLS at `/hls/{serial}/{camera}/{profile}/stream.m3u8`.
 - Streams are low-latency HLS (≈6–12s). Stop streams when done to free backend FFmpeg resources.

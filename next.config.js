@@ -47,6 +47,7 @@ if (env === 'staging' || env === 'production') {
 }
 
 const nextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
 }
 
