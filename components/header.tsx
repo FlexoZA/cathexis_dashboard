@@ -200,10 +200,11 @@ export function Header() {
 
   return (
     <header className="w-full border-b bg-background">
-      <div className="w-full flex h-16 items-center justify-between px-3 md:px-4">
+      <div className="w-full flex h-16 items-center justify-between px-3 md:px-4 relative">
         <div className="flex items-center gap-2">
           <h1 className="text-xl font-bold">CWE GW manager</h1>
         </div>
+        <h3 className="absolute left-1/2 -translate-x-1/2 text-sm text-red-500">Please note: this is a beta version</h3>
         <nav className="flex items-center gap-4 relative">
           <div className="flex items-center gap-3 text-muted-foreground">
             <div
