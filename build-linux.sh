@@ -76,6 +76,11 @@ if [ -z "${NEXT_PUBLIC_SUPABASE_URL}" ] || [ -z "${NEXT_PUBLIC_SUPABASE_ANON_KEY
   exit 1
 fi
 
+if [ -z "${CWE_MVR_API_URL}" ] || [ -z "${CWE_MVR_API_KEY}" ]; then
+  echo "ERROR: CWE_MVR_API_URL and CWE_MVR_API_KEY must be set in .env.production.local."
+  exit 1
+fi
+
 # Build the image
 if docker buildx version >/dev/null 2>&1; then
   docker buildx build \
@@ -84,6 +89,8 @@ if docker buildx version >/dev/null 2>&1; then
     --build-arg ENV=production \
     --build-arg NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL}" \
     --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY}" \
+    --build-arg CWE_MVR_API_URL="${CWE_MVR_API_URL}" \
+    --build-arg CWE_MVR_API_KEY="${CWE_MVR_API_KEY}" \
     -t "${FULL_IMAGE_NAME}" \
     .
 else
@@ -92,6 +99,8 @@ else
     --build-arg ENV=production \
     --build-arg NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL}" \
     --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY}" \
+    --build-arg CWE_MVR_API_URL="${CWE_MVR_API_URL}" \
+    --build-arg CWE_MVR_API_KEY="${CWE_MVR_API_KEY}" \
     -t "${FULL_IMAGE_NAME}" \
     .
 fi
