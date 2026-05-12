@@ -1,11 +1,13 @@
 import { jt808Module } from '@/lib/devices/n62/module'
 import { mvr5Module } from '@/lib/devices/cathexis/module'
+import { howenModule } from '@/lib/devices/howen/module'
 import { unknownModule } from '@/lib/devices/unknown/module'
 import type { UnitCapabilities, UnitConfigPayload, UnitModule, UnitModuleContext, UnitProtocol } from '@/lib/units/types'
 
 const modules: Record<UnitProtocol, UnitModule> = {
   mvr5: mvr5Module,
   jt808: jt808Module,
+  howen: howenModule,
   unknown: unknownModule,
 }
 
@@ -16,6 +18,9 @@ function inferProtocolFromIdentifiers(serial?: string | null, deviceModel?: stri
   if (serialUpper.startsWith('JT808_') || modelUpper.includes('N62') || modelUpper.includes('JT808')) {
     return 'jt808'
   }
+  if (modelUpper.includes('HOWEN') || modelUpper.includes('HERO-MC30') || modelUpper.includes('MC30')) {
+    return 'howen'
+  }
   if (serialUpper.startsWith('MVR') || modelUpper.includes('MVR')) {
     return 'mvr5'
   }
@@ -24,8 +29,9 @@ function inferProtocolFromIdentifiers(serial?: string | null, deviceModel?: stri
 
 export function normalizeProtocol(protocol?: string | null): UnitProtocol {
   const normalized = (protocol || '').trim().toLowerCase()
-  if (normalized === 'mvr5') return 'mvr5'
-  if (normalized === 'jt808') return 'jt808'
+  if (normalized === 'mvr5' || normalized === 'cathexis') return 'mvr5'
+  if (normalized === 'jt808' || normalized === 'jt808_19') return 'jt808'
+  if (normalized === 'howen') return 'howen'
   return 'unknown'
 }
 

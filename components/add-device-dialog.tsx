@@ -217,6 +217,7 @@ export function AddDeviceDialog({
                   <SelectItem value="none">No Model</SelectItem>
                   <SelectItem value="MRV5">MRV5</SelectItem>
                   <SelectItem value="N62">N62</SelectItem>
+                  <SelectItem value="Howen Hero-MC30-02">Howen Hero-MC30-02</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -234,6 +235,7 @@ export function AddDeviceDialog({
                   <SelectItem value="none">No Protocol</SelectItem>
                   <SelectItem value="jt808_19">JT808_19</SelectItem>
                   <SelectItem value="cathexis">Cathexis</SelectItem>
+                  <SelectItem value="howen">Howen</SelectItem>
                 </SelectContent>
               </Select>
             </div>

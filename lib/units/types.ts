@@ -1,4 +1,4 @@
-export type UnitProtocol = 'mvr5' | 'jt808' | 'unknown'
+export type UnitProtocol = 'mvr5' | 'jt808' | 'howen' | 'unknown'
 
 export interface UnitProfileOption {
   value: number
