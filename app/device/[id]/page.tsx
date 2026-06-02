@@ -27,6 +27,7 @@ import {
 import { getCapabilitiesForUnit, normalizeProtocol } from "@/lib/units/registry"
 import { DevicePageShell } from "@/components/device-shell/device-page-shell"
 import { N62DeviceView } from "@/components/devices/n62/n62-device-view"
+import { HowenDeviceView } from "@/components/devices/howen/howen-device-view"
 
 interface Device {
   id: number
@@ -130,7 +131,7 @@ export default function DevicePage() {
     void (async () => {
       try {
         if (!device?.serial) return
-        if (normalizeProtocol(device?.protocol) === "jt808") return
+        if (unitCapabilities.protocol === "jt808" || unitCapabilities.protocol === "howen") return
 
         setUnitDetailsLoading(true)
         setUnitDetailsError(null)
@@ -173,7 +174,7 @@ export default function DevicePage() {
     void (async () => {
       try {
         if (!device?.serial) return
-        if (normalizeProtocol(device?.protocol) === "jt808") return
+        if (unitCapabilities.protocol === "jt808" || unitCapabilities.protocol === "howen") return
 
         setSdHealthLoading(true)
         setSdHealthError(null)
@@ -535,8 +536,15 @@ export default function DevicePage() {
             </div>
           )}
 
-          {/* Status & Activity — only for non-JT808 devices */}
-          {unitCapabilities.protocol !== "jt808" && (
+          {/* Howen unit info — replaces generic status section */}
+          {unitCapabilities.protocol === "howen" && device.serial && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <HowenDeviceView serial={device.serial} />
+            </div>
+          )}
+
+          {/* Status & Activity — only for generic (MVR5 / unknown) devices */}
+          {unitCapabilities.protocol !== "jt808" && unitCapabilities.protocol !== "howen" && (
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
               <Activity className="w-5 h-5 mr-2" />
@@ -1451,8 +1459,8 @@ export default function DevicePage() {
           </div>
         </div>
 
-        {/* Location & Network / Recent Activity — only for non-JT808 devices */}
-        {unitCapabilities.protocol !== "jt808" && (
+        {/* Location & Network / Recent Activity — only for generic (MVR5 / unknown) devices */}
+        {unitCapabilities.protocol !== "jt808" && unitCapabilities.protocol !== "howen" && (
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
