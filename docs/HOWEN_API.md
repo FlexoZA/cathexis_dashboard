@@ -227,6 +227,7 @@ stream, request_clip, query_recordings, request_config, update_config
 | --- | --- | --- |
 | `POST /api/units/:serial/stream/start` / `stop` | `stream` | `0x4010` |
 | `POST /api/units/:serial/clips/request` | `request_clip` | `0x4070` |
+| `GET  /api/units/:serial/clips/status` | — (DB + storage) | clip lifecycle / download URL (see §4.3) |
 | `GET  /api/units/:serial/recordings` | `query_recordings` | `0x4060` |
 | `POST /api/units/:serial/command` `{type:"request_config"}` | `request_config` | `0x40A0` (GET) |
 | `POST /api/units/:serial/command` `{type:"update_config"}` | `update_config` | `0x40A0` (SET) |
@@ -372,6 +373,143 @@ incrementally per screen as the meanings are confirmed against the device.
 
 ---
 
+## 4.3 Clips — request a clip and download it
+
+Pulling saved footage off a Howen unit is a **two-stage, asynchronous** flow:
+
+1. **Request** the clip (`POST …/clips/request`). The gateway sends `0x4070` over the signal link and
+   immediately creates a clip record (status `processing`). The device then opens a **separate media
+   link** back to us (`srv = clipReceiverIp:howenMediaListenPort`) and streams the footage as `0x0011`
+   frames. The media server (`src/tcp/howenMediaServer.js`) writes them to a temp file, runs FFmpeg,
+   uploads the result to Supabase storage, and flips the record to `ready` with a signed URL.
+2. **Poll status** (`GET …/clips/status`) until `status: "ready"`, then download from the returned
+   `download_url`.
+
+> One camera per request. The H-Protocol `chl` field accepts a `;`-separated channel list, but the
+> gateway's clip pipeline is keyed one-camera-per-session (one stored file + one clip record). Request
+> each camera separately.
+
+### 4.3.1 Step 1 — request the clip
+
+```
+POST /api/units/:serial/clips/request
+```
+
+Body:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `camera` | yes | 0-based camera. `0` = Road, `1` = Cab (→ H-Protocol `chl` = camera + 1). |
+| `profile` | yes | `0` = high-res (main stream), `1` = low-res (sub stream). |
+| `start_utc` | yes | Window start, Unix seconds (UTC). |
+| `end_utc` | yes | Window end, Unix seconds (UTC). |
+
+Constraints enforced by the route: duration (`end_utc - start_utc`) must be **≥ 5 s and ≤ 300 s**
+(5 minutes). The upload target (`srv` ip/port) is injected server-side from config — it is **not** part
+of the request body.
+
+```bash
+curl -s -X POST http://185.202.223.35:9000/api/units/87845313/clips/request \
+  -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"camera":0,"profile":1,"start_utc":1780531200,"end_utc":1780531260}'
+```
+
+Success (HTTP 200) — the device accepted the playback request and will start uploading:
+
+```json
+{
+  "ok": true,
+  "message": "Howen playback request sent to device (0x4070). Device will open a media link and upload saved footage.",
+  "serial": "87845313",
+  "camera": 0,
+  "profile": 1,
+  "start_utc": 1780531200,
+  "end_utc": 1780531260,
+  "duration": 60,
+  "clip_id": 56,
+  "session": "playback_87845313_19E8D80FC08",
+  "check_status_url": "/api/units/87845313/clips/status?start_utc=1780531200&end_utc=1780531260&camera=0"
+}
+```
+
+If the device has no footage for that window/camera/profile it rejects with `err=6`, surfaced as
+`Howen playback rejected with err=6 (related file does not exist)` (see [Error Codes](#9-error-codes)).
+**Always confirm availability first with `query_recordings`** (§5) before requesting a clip.
+
+### 4.3.2 Step 2 — poll status and download
+
+```
+GET /api/units/:serial/clips/status?start_utc=<>&end_utc=<>&camera=<>
+```
+
+Use the `check_status_url` returned in step 1 (same `start_utc`/`end_utc`/`camera`). Poll every few
+seconds; processing typically takes ~30–120 s depending on clip length.
+
+| `status` | `ok` | Meaning | Key fields |
+| --- | --- | --- | --- |
+| `processing` | true | Request sent, device hasn't started uploading yet | — |
+| `receiving` | true | Media is being downloaded from the device | `progress_percent`, `bytes_received`, `file_size` |
+| `uploading` | true | Media is being uploaded to storage | `progress_percent`, `bytes_received` |
+| `ready` | true | Clip is stored and downloadable | `clip.download_url`, `clip.expires_at`, `clip.file_size` |
+| `error` | **false** | Processing failed | `error` (human-readable, e.g. `…err=6 (related file does not exist)`) |
+
+```bash
+curl -s "http://185.202.223.35:9000/api/units/87845313/clips/status?start_utc=1780531200&end_utc=1780531260&camera=0" \
+  -H "X-API-Key: $KEY"
+```
+
+Ready response:
+
+```json
+{
+  "ok": true,
+  "status": "ready",
+  "clip": {
+    "id": 56,
+    "download_url": "https://<supabase>/storage/v1/object/sign/clips/87845313/camera0_profile1_1780531200_1780531260.mp4?token=…",
+    "expires_at": "2026-06-05T08:57:41.000Z",
+    "duration_seconds": 60,
+    "file_size": 5242880,
+    "camera": 0,
+    "profile": 1,
+    "created_at": "2026-06-04T08:57:41.000Z"
+  }
+}
+```
+
+### 4.3.3 Step 3 — fetch the file
+
+`download_url` is a **signed Supabase Storage URL valid for 24 h**. Download it directly (no API key
+needed — the signature is in the URL). If it has expired, just call `clips/status` again: the gateway
+auto-regenerates a fresh signed URL on the next status check.
+
+```bash
+# Pull the download_url out of the status response, then fetch the file
+curl -L -o clip.mp4 "<download_url from clips/status>"
+```
+
+End-to-end (request → wait → download):
+
+```bash
+KEY=<key>
+BASE=http://185.202.223.35:9000
+SERIAL=87845313
+
+# 1. request
+curl -s -X POST $BASE/api/units/$SERIAL/clips/request \
+  -H "X-API-Key: $KEY" -H "Content-Type: application/json" \
+  -d '{"camera":0,"profile":1,"start_utc":1780531200,"end_utc":1780531260}'
+
+# 2. poll until "status":"ready" (re-run until ready)
+curl -s "$BASE/api/units/$SERIAL/clips/status?start_utc=1780531200&end_utc=1780531260&camera=0" \
+  -H "X-API-Key: $KEY"
+
+# 3. download the signed URL from the ready response
+curl -L -o clip.mp4 "<download_url>"
+```
+
+---
+
 ## 5. Verified live tests
 
 Against unit `87845313` (IMEI `864312087845313`) on `185.202.223.35:9000`:
@@ -433,8 +571,8 @@ GPS/event timestamps inside binary status blocks are 6-byte `YY MM DD hh mm ss` 
 | 3 | invalid command |
 | 4 | device busy |
 | 5 | connection lost |
-| 6 | related file not exist |
-| 7 | disk not exist |
+| 6 | related file does not exist |
+| 7 | disk does not exist |
 | 8 | follow-up data (more records coming) |
 | 9 | file search finished |
 | 10 | device not authorized |

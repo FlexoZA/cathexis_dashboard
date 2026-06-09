@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { ArrowLeft, Settings, Activity, MapPin, Film, Download, Trash2, Play, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -71,11 +71,16 @@ const statusConfig = {
 }
 
 const clipStatusConfig = {
+  processing: { label: 'Processing', color: 'bg-amber-500/10 text-amber-600 border-amber-500/20' },
   receiving: { label: 'Receiving', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+  uploading: { label: 'Uploading', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
   ready: { label: 'Ready', color: 'bg-green-500/10 text-green-500 border-green-500/20' },
   completed: { label: 'Completed', color: 'bg-green-500/10 text-green-500 border-green-500/20' },
+  error: { label: 'Error', color: 'bg-red-500/10 text-red-500 border-red-500/20' },
   failed: { label: 'Failed', color: 'bg-red-500/10 text-red-500 border-red-500/20' },
 }
+
+const ACTIVE_CLIP_STATUSES = new Set(['processing', 'receiving', 'uploading'])
 
 export default function DevicePage() {
   const params = useParams()
@@ -103,6 +108,7 @@ export default function DevicePage() {
   const [sdHealthError, setSdHealthError] = useState<string | null>(null)
   const [sdHealth, setSdHealth] = useState<any | null>(null)
   const [sdHealthLoadedAt, setSdHealthLoadedAt] = useState<string | null>(null)
+  const clipsRef = useRef<Clip[]>([])
 
   const deviceId = params.id as string
   const unitCapabilities = getCapabilitiesForUnit({
@@ -257,6 +263,75 @@ export default function DevicePage() {
       supabase.removeChannel(channel)
     }
   }, [device?.serial])
+
+  useEffect(() => {
+    clipsRef.current = clips
+  }, [clips])
+
+  // Howen clip transfer is async on the gateway; Supabase realtime may lag. Poll clips/status
+  // (docs/HOWEN_API.md §4.3.2) so progress and errors surface while the device uploads.
+  useEffect(() => {
+    if (!device?.serial || unitCapabilities.protocol !== 'howen') return
+
+    const serial = device.serial
+
+    const pollActiveClips = async () => {
+      const active = clipsRef.current.filter((clip) => ACTIVE_CLIP_STATUSES.has(clip.status))
+      if (active.length === 0) return
+
+      for (const clip of active) {
+        try {
+          const params = new URLSearchParams({
+            start_utc: String(clip.start_utc),
+            end_utc: String(clip.end_utc),
+            camera: String(clip.camera),
+          })
+          const res = await fetch(
+            `/api/units/${encodeURIComponent(serial)}/clips/status?${params.toString()}`,
+            { cache: 'no-store' }
+          )
+          const json = await res.json().catch(() => null)
+          if (!json) continue
+
+          console.log("DEBUG::DevicePage", "Clip status poll:", {
+            clipId: clip.id,
+            start_utc: clip.start_utc,
+            gatewayStatus: json.status,
+            ok: json.ok,
+            progress_percent: json.progress_percent,
+            bytes_received: json.bytes_received,
+          })
+
+          setClips((prev) =>
+            prev.map((c) => {
+              if (c.start_utc !== clip.start_utc || c.end_utc !== clip.end_utc || c.camera !== clip.camera) {
+                return c
+              }
+              const nextStatus = json.status || c.status
+              const gatewayError = json.ok === false ? (json.error || json.message) : null
+              return {
+                ...c,
+                status: nextStatus,
+                progress_percent: json.progress_percent ?? c.progress_percent,
+                bytes_received: json.bytes_received ?? c.bytes_received,
+                file_size: json.file_size || c.file_size,
+                error_message: gatewayError || (nextStatus === 'error' ? json.error || json.message : c.error_message),
+                signed_url: json.clip?.download_url ?? c.signed_url,
+                signed_url_expires_at: json.clip?.expires_at ?? c.signed_url_expires_at,
+              }
+            })
+          )
+        } catch (pollErr) {
+          console.log("DEBUG::DevicePage", "Clip status poll error:", pollErr)
+        }
+      }
+    }
+
+    const intervalId = setInterval(() => void pollActiveClips(), 5000)
+    void pollActiveClips()
+
+    return () => clearInterval(intervalId)
+  }, [device?.serial, unitCapabilities.protocol])
 
   async function fetchDevice() {
     try {
@@ -1322,8 +1397,10 @@ export default function DevicePage() {
                   protocol={device.protocol}
                   capabilities={unitCapabilities}
                   onClipRequested={() => {
-                    console.log("DEBUG::DevicePage", "Clip requested, will rely on real-time updates for progress")
-                    // Removed manual fetchClips call - real-time subscription will handle updates
+                    console.log("DEBUG::DevicePage", "Clip requested, refreshing clips list")
+                    if (device.serial) {
+                      setTimeout(() => fetchClips(device.serial!), 1500)
+                    }
                   }}
                 />
               )}
@@ -1380,11 +1457,16 @@ export default function DevicePage() {
                           </div>
                         </div>
 
-                        {clip.status === 'receiving' && (
+                        {(clip.status === 'processing' || clip.status === 'receiving' || clip.status === 'uploading') && (
                           <div className="mt-2">
                             <div className="flex items-center gap-2 text-xs text-gray-600 mb-1">
                               <span>Progress: {clip.progress_percent}%</span>
-                              <span>({formatFileSize(clip.bytes_received)} received)</span>
+                              {(clip.status === 'receiving' || clip.status === 'uploading') && (
+                                <span>({formatFileSize(clip.bytes_received)} received)</span>
+                              )}
+                              {clip.status === 'processing' && (
+                                <span>Waiting for device to start upload…</span>
+                              )}
                             </div>
                             <div className="w-full bg-gray-200 rounded-full h-1.5">
                               <div 

@@ -24,6 +24,7 @@ import { SectionTabs } from "@/components/device-shell/section-tabs"
 import { getCapabilitiesForUnit, getSectionOrderForUnit, normalizeProtocol } from "@/lib/units/registry"
 import type { UnitCapabilities } from "@/lib/units/types"
 import { N62DeviceConfig } from "@/components/devices/n62/n62-device-config"
+import { HowenDeviceConfig } from "@/components/devices/howen/howen-device-config"
 import { NotificationsSidebar } from "@/components/notifications-sidebar"
 
 interface Device {
@@ -114,7 +115,9 @@ export default function DeviceConfigPage() {
           deviceModel: mapped.device_model,
           protocol: mapped.protocol,
         }).protocol
-        if (resolvedProtocol === "jt808") {
+        if (resolvedProtocol === "jt808" || resolvedProtocol === "howen") {
+          // jt808 and howen use self-contained config editors that talk to the device
+          // directly (request_config / update_config) rather than /api/device-config.
           setConfig({})
           setInitialConfig({})
           return
@@ -540,13 +543,15 @@ export default function DeviceConfigPage() {
     )
   }
 
-  const isJt808 = getCapabilitiesForUnit({
+  const resolvedConfigProtocol = getCapabilitiesForUnit({
     serial: device?.serial,
     deviceModel: device?.device_model,
     protocol: device?.protocol,
-  }).protocol === "jt808"
+  }).protocol
+  const isJt808 = resolvedConfigProtocol === "jt808"
+  const isHowen = resolvedConfigProtocol === "howen"
 
-  if (error || !device || (!isJt808 && !config)) {
+  if (error || !device || (!isJt808 && !isHowen && !config)) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="w-full max-w-7xl mx-auto px-4 py-12">
@@ -576,6 +581,27 @@ export default function DeviceConfigPage() {
         <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div className="min-w-0">
             <N62DeviceConfig serial={device.serial} />
+          </div>
+          <NotificationsSidebar className="lg:sticky lg:top-6 lg:w-[280px] lg:max-h-[calc(100vh-6rem)] lg:self-start" />
+        </div>
+      </ConfigShell>
+    )
+  }
+
+  if (isHowen && device.serial) {
+    return (
+      <ConfigShell
+        deviceId={device.id}
+        deviceName={device.friendly_name || "Unnamed Device"}
+        serial={device.serial}
+        hasChanges={false}
+        saving={false}
+        onReset={() => {}}
+        containerClassName="max-w-[1440px]"
+      >
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="min-w-0">
+            <HowenDeviceConfig serial={device.serial} />
           </div>
           <NotificationsSidebar className="lg:sticky lg:top-6 lg:w-[280px] lg:max-h-[calc(100vh-6rem)] lg:self-start" />
         </div>
