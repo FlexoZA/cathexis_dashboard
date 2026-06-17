@@ -171,7 +171,7 @@ export interface Database {
 }
 
 // Device status enum
-export type DeviceStatus = 'online' | 'offline' | 'warning' | 'maintenance'
+export type DeviceStatus = 'online' | 'offline' | 'sleep' | 'warning' | 'maintenance'
 
 // Convenience types
 export type Device = Database['public']['Tables']['mvr_devices']['Row']

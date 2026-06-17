@@ -37,13 +37,14 @@ interface Device {
   device_serial: string
   device_model: string | null
   protocol: string | null
-  status: 'online' | 'offline' | 'warning' | 'maintenance'
+  status: 'online' | 'offline' | 'sleep' | 'warning' | 'maintenance'
   group_name: string | null
 }
 
 const statusConfig = {
   online: { label: 'Online', color: 'bg-green-500/10 text-green-500 border-green-500/20' },
   offline: { label: 'Offline', color: 'bg-red-500/10 text-red-500 border-red-500/20' },
+  sleep: { label: 'Sleep', color: 'bg-yellow-500/10 text-yellow-500 border-yellow-500/20' },
   warning: { label: 'Warning', color: 'bg-orange-500/10 text-orange-500 border-orange-500/20' },
   maintenance: { label: 'Maintenance', color: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
 }
@@ -139,6 +140,7 @@ export function DeviceList() {
         const status =
           rawStatus === 'online' ||
           rawStatus === 'offline' ||
+          rawStatus === 'sleep' ||
           rawStatus === 'warning' ||
           rawStatus === 'maintenance'
             ? rawStatus

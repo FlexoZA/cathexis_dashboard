@@ -45,20 +45,30 @@ interface HowenRecordingFile {
   fs?: string
 }
 
-// Howen returns UTC wall-clock strings; clip filenames also embed Unix epochs.
+// Map a Howen file-query entry to a playback region (Unix epoch seconds).
+//
+// Prefer the `st`/`et` UTC wall-clock strings: they are the device's canonical
+// recording index and are what playback-by-time (0x4070) matches against.
+//
+// Do NOT trust the epochs embedded in the filename (`fn`). On this device they are
+// offset by the unit's local timezone (e.g. +2h for SAST) relative to `st`/`et` —
+// the firmware stamps the filename epoch from local wall-clock as if it were UTC.
+// Using them makes playback request a window 2h past the real file → err=6
+// ("related file does not exist").
 function howenFileToRegion(file: HowenRecordingFile): Region | null {
+  if (file.st && file.et) {
+    const start_utc = Math.floor(new Date(file.st.replace(" ", "T") + "Z").getTime() / 1000)
+    const end_utc = Math.floor(new Date(file.et.replace(" ", "T") + "Z").getTime() / 1000)
+    if (Number.isFinite(start_utc) && Number.isFinite(end_utc) && end_utc > start_utc) {
+      return { start_utc, end_utc }
+    }
+  }
+  // Fallback only when the device omits st/et — filename epochs may be tz-offset.
   const fn = file.fn || ""
   const epochMatch = fn.match(/_(\d{10})_(\d{10})_/)
   if (epochMatch) {
     const start_utc = Number(epochMatch[1])
     const end_utc = Number(epochMatch[2])
-    if (Number.isFinite(start_utc) && Number.isFinite(end_utc) && end_utc > start_utc) {
-      return { start_utc, end_utc }
-    }
-  }
-  if (file.st && file.et) {
-    const start_utc = Math.floor(new Date(file.st.replace(" ", "T") + "Z").getTime() / 1000)
-    const end_utc = Math.floor(new Date(file.et.replace(" ", "T") + "Z").getTime() / 1000)
     if (Number.isFinite(start_utc) && Number.isFinite(end_utc) && end_utc > start_utc) {
       return { start_utc, end_utc }
     }
